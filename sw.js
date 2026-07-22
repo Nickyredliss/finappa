@@ -1,7 +1,7 @@
 /* Finappa service worker — офлайн-режим.
    Стратегия: кэшируем оболочку при установке; отдаём из кэша,
    в фоне обновляем из сети (stale-while-revalidate). */
-const CACHE = "finappa-v2";
+const CACHE = "finappa-v3";
 const ASSETS = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {
@@ -32,4 +32,24 @@ self.addEventListener("fetch", (e) => {
       return cached || fresh;
     })
   );
+});
+
+/* Push-уведомления о подписках */
+self.addEventListener("push", (e) => {
+  let payload = { title: "Finappa", body: "" };
+  try { payload = e.data.json(); } catch {}
+  e.waitUntil(self.registration.showNotification(payload.title || "Finappa", {
+    body: payload.body || "",
+    icon: "./icon-192.png",
+    badge: "./icon-192.png",
+    data: payload,
+  }));
+});
+
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  e.waitUntil(clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+    for (const c of list) if ("focus" in c) return c.focus();
+    return clients.openWindow("./");
+  }));
 });
