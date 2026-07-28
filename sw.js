@@ -1,7 +1,7 @@
 /* Finappa service worker — офлайн-режим.
    Стратегия: кэшируем оболочку при установке; отдаём из кэша,
    в фоне обновляем из сети (stale-while-revalidate). */
-const CACHE = "finappa-v14";
+const CACHE = "finappa-v15";
 const ASSETS = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {
