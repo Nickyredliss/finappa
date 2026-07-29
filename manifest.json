@@ -18,6 +18,12 @@
       "short_name": "Расход",
       "url": "./?action=add-expense",
       "description": "Сразу открыть форму нового расхода"
+    },
+    {
+      "name": "Сказать фразой",
+      "short_name": "Фразой",
+      "url": "./?action=say",
+      "description": "Записать одной фразой — голосом или текстом"
     }
   ]
 }
