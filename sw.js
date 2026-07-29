@@ -1,11 +1,18 @@
 /* Finappa service worker — офлайн-режим.
    Стратегия: кэшируем оболочку при установке; отдаём из кэша,
    в фоне обновляем из сети (stale-while-revalidate). */
-const CACHE = "finappa-v17";
+const CACHE = "finappa-v18";
 const ASSETS = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  /* cache:"reload" — иначе «./» может приехать из HTTP-кэша браузера
+     и оболочка застрянет на прошлой версии, хотя index.html уже новый */
+  e.waitUntil(
+    caches
+      .open(CACHE)
+      .then((c) => c.addAll(ASSETS.map((u) => new Request(u, { cache: "reload" }))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener("activate", (e) => {
