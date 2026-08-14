@@ -1,7 +1,7 @@
 /* Finappa service worker — офлайн-режим.
    Стратегия: кэшируем оболочку при установке; отдаём из кэша,
    в фоне обновляем из сети (stale-while-revalidate). */
-const CACHE = "finappa-v31";
+const CACHE = "finappa-v32";
 const ASSETS = ["./", "./index.html", "./manifest.json", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {
@@ -59,8 +59,17 @@ self.addEventListener("push", (e) => {
 
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();
+  /* Уведомление обязано открывать свой раздел: пуш про дело — «Дела», про
+     черновик — «Деньги». Иначе напоминание превращается в «открой и найди»,
+     а это ровно та потеря, из-за которой о деле и забывают. */
+  const data = e.notification.data || {};
+  const url = data.section === "tasks" ? "./?section=tasks" : "./";
   e.waitUntil(clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
-    for (const c of list) if ("focus" in c) return c.focus();
-    return clients.openWindow("./");
+    for (const c of list) {
+      if (!("focus" in c)) continue;
+      if (data.section && "navigate" in c) return c.navigate(url).then((x) => (x || c).focus());
+      return c.focus();
+    }
+    return clients.openWindow(url);
   }));
 });
