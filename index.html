@@ -1310,6 +1310,7 @@
       s = {
         overdue: [],
         today: [],
+        soon: [],
         later: [],
         someday: [],
         doneToday: []
@@ -1320,8 +1321,8 @@
           oo(o, a) && s.doneToday.push(o);
           continue
         }
-        o.due ? o.due < a ? s.overdue.push(o) : o.due === a ? s.today.push(o) : s.later.push(o) : s.someday.push(o)
-      } return s.overdue.sort(Gt), s.today.sort(Gt), s.later.sort(Gt), s.someday.sort(ro), s.doneToday.sort((o, c) => (Number(c.doneAt) || 0) - (Number(o.doneAt) || 0)), s
+        o.due ? o.due < a ? s.overdue.push(o) : o.due === a ? s.today.push(o) : s.later.push(o) : o.soon ? s.soon.push(o) : s.someday.push(o)
+      } return s.overdue.sort(Gt), s.today.sort(Gt), s.later.sort(Gt), s.soon.sort(ro), s.someday.sort(ro), s.doneToday.sort((o, c) => (Number(c.doneAt) || 0) - (Number(o.doneAt) || 0)), s
   }
   var $a = [
       ["воскресенье", "вс"],
@@ -1379,6 +1380,13 @@
       let p = d.match(Xe(h));
       return p && l(p[0]), p
     };
+    /* «на днях» / «скоро» — не дата, а пометка «держи на виду». Слово
+       съедается из текста ровно как съедаются даты.
+       «не забыть» в маркеры НЕ берём: так формулируют любое дело вообще, а не
+       только ближайшее, — ловили бы ложные срабатывания пачками. И съесть его
+       чисто нельзя: «не забыть про визу» превратилось бы в «про визу». */
+    let ao = !1;
+    if (g("на\\s+днях") || g("скоро")) ao = !0;
     if (u = g("послезавтра")) o = r(2);
     else if (u = g("сегодня")) o = r(0);
     else if (u = g("завтра")) o = r(1);
@@ -1404,6 +1412,7 @@
     return d = d.replace(/^[\s,.;–—-]+|[\s,.;–—-]+$/g, ""), {
       due: o,
       time: c,
+      soon: ao && !o,
       text: d || s
     }
   }
@@ -1912,7 +1921,10 @@
       let i = new Date;
       return {
         y: i.getFullYear(),
-        m: i.getMonth()
+        m: i.getMonth(),
+        mode: "month",
+        from: "",
+        to: ""
       }
     });
     we(() => {
@@ -3493,11 +3505,33 @@
     })
   }
 
-  function To(e, t) {
+  /* Человеческая подпись произвольного диапазона: «3–17 августа», если месяц
+     один, иначе «29 июля – 3 августа». Год дописывается только когда он не
+     нынешний — иначе подпись растёт без пользы. */
+  function zRangeLabel(e, t) {
+    if (!e || !t) return "Выберите даты";
+    let a = new Date(e + "T00:00:00"),
+      s = new Date(t + "T00:00:00"),
+      o = new Date().getFullYear(),
+      c = s.getFullYear() === o ? "" : ` ${s.getFullYear()}`;
+    return e === t ? `${a.getDate()} ${je[a.getMonth()]}${c}` : a.getFullYear() === s.getFullYear() && a.getMonth() === s.getMonth() ? `${a.getDate()}–${s.getDate()} ${je[s.getMonth()]}${c}` : `${a.getDate()} ${je[a.getMonth()]}${a.getFullYear()===s.getFullYear()?"":` ${a.getFullYear()}`} – ${s.getDate()} ${je[s.getMonth()]}${c}`
+  }
+
+  function To(e, t, i) {
     let a = g => String(g).padStart(2, "0"),
       s = g => `${g.getFullYear()}-${a(g.getMonth()+1)}-${a(g.getDate())}`,
       o = new Date,
       c = new Date(o.getFullYear(), o.getMonth(), o.getDate());
+    if (e === "range") {
+      let g = i && i.from || "",
+        h = i && i.to || "";
+      return g && h && g > h && ([g, h] = [h, g]), {
+        from: g || "0000-01-01",
+        to: h || "9999-12-31",
+        label: zRangeLabel(g, h),
+        ready: !!(g && h)
+      }
+    }
     if (e === "day") {
       let g = new Date(c);
       return g.setDate(g.getDate() + t), {
@@ -3563,32 +3597,42 @@
   }) {
     let [d, l] = C(""), [r, u] = C({
       mode: "week",
-      offset: 0
+      offset: 0,
+      from: "",
+      to: ""
     }), [g, h] = C("all"), p = s !== "all" ? a[s] : null, _ = !!p && Me(p) && (p.members || []).length > 1, v = _ && g === "mine", x = d.trim().toLowerCase(), I = N => {
       if (!x || N.comment && N.comment.toLowerCase().includes(x)) return !0;
       if (N.type === "transfer") return "перевод".includes(x);
       let z = Nt(N, t);
       return !!(z && z.name.toLowerCase().includes(x))
     }, T = e.txs.filter(N => s === "all" ? !0 : N.type === "transfer" ? N.fromWalletId === s || N.toWalletId === s : N.walletId === s).filter(N => !v || !N.shared).filter(I).sort((N, z) => N.date < z.date ? 1 : N.date > z.date ? -1 : N.createdAt < z.createdAt ? 1 : -1), k = [];
-    for (let N of T) {
+    let D = s === "all" && e.wallets.length > 1,
+      {
+        from: M,
+        to: j,
+        label: E,
+        ready: zReady
+      } = To(r.mode, r.offset, r),
+      zIsRange = r.mode === "range",
+      /* В режиме «Период» список фильтруется по окну. В Д/Н/М поведение
+         прежнее: карточка считает итог, а список ниже показывает всю историю
+         — так работает давно и ломать незачем. Но «Период» выбирают именно
+         чтобы посмотреть на окно, и полная история под ним не отвечает на
+         заданный вопрос. */
+      zRows = zIsRange ? T.filter(N => N.date >= M && N.date <= j) : T,
+      {
+        spent: H,
+        got: U
+      } = Ha(zRows.filter(N => N.date >= M && N.date <= j)),
+      A = Object.keys(H).length > 0,
+      w = Object.keys(U).length > 0;
+    for (let N of zRows) {
       let z = k[k.length - 1];
       z && z.date === N.date ? z.items.push(N) : k.push({
         date: N.date,
         items: [N]
       })
     }
-    let D = s === "all" && e.wallets.length > 1,
-      {
-        from: M,
-        to: j,
-        label: E
-      } = To(r.mode, r.offset),
-      {
-        spent: H,
-        got: U
-      } = Ha(T.filter(N => N.date >= M && N.date <= j)),
-      A = Object.keys(H).length > 0,
-      w = Object.keys(U).length > 0;
     return n("div", {
       className: "fc-page",
       children: [n("div", {
@@ -3612,16 +3656,45 @@
           children: [
             ["day", "День"],
             ["week", "Неделя"],
-            ["month", "Месяц"]
+            ["month", "Месяц"],
+            ["range", "Период"]
           ].map(([N, z]) => n("button", {
             className: "fc-seg-btn" + (r.mode === N ? " fc-seg-on-period" : ""),
-            onClick: () => u({
+            onClick: () => u(L => ({
+              ...L,
               mode: N,
               offset: 0
-            }),
+            })),
             children: z
           }, N))
-        }), n("div", {
+        }), zIsRange ? n(X, {
+          children: [n("div", {
+            className: "fc-range-row",
+            children: [n("input", {
+              className: "fc-input",
+              type: "date",
+              value: r.from,
+              onChange: N => u(z => ({
+                ...z,
+                from: N.target.value
+              }))
+            }), n("span", {
+              className: "fc-muted",
+              children: "—"
+            }), n("input", {
+              className: "fc-input",
+              type: "date",
+              value: r.to,
+              onChange: N => u(z => ({
+                ...z,
+                to: N.target.value
+              }))
+            })]
+          }), zReady && n("div", {
+            className: "fc-period-label fc-range-label",
+            children: E
+          })]
+        }) : n("div", {
           className: "fc-month-nav fc-period-nav",
           children: [n("button", {
             className: "fc-month-btn",
@@ -3642,7 +3715,10 @@
             })),
             children: "›"
           })]
-        }), !A && !w ? n("div", {
+        }), zIsRange && !zReady ? n("div", {
+          className: "fc-period-empty",
+          children: "Выберите обе даты"
+        }) : !A && !w ? n("div", {
           className: "fc-period-empty",
           children: "Операций за период нет"
         }) : n(X, {
@@ -3683,9 +3759,9 @@
         placeholder: "🔍 Поиск по комментарию и категории",
         value: d,
         onInput: N => l(N.target.value)
-      }), T.length === 0 && n("div", {
+      }), zRows.length === 0 && n("div", {
         className: "fc-empty",
-        children: x ? "Ничего не нашлось." : "Операций пока нет."
+        children: x ? "Ничего не нашлось." : zIsRange ? zReady ? "За этот период операций нет." : "Выберите даты периода." : "Операций пока нет."
       }), k.map(N => {
         let z = Ha(N.items).spent;
         return n("div", {
@@ -3965,7 +4041,8 @@
         id: pe(),
         text: I.text,
         due: I.due,
-        dueTime: I.time
+        dueTime: I.time,
+        soon: !!I.soon
       }), l("")
     }, _ = ({
       title: x,
@@ -3987,7 +4064,7 @@
         onToggle: t,
         onOpen: o
       }, k.id))]
-    }) : null, v = !h.overdue.length && !h.today.length && !h.later.length && !h.someday.length;
+    }) : null, v = !h.overdue.length && !h.today.length && !h.soon.length && !h.later.length && !h.someday.length;
     return n("div", {
       className: "fc-page",
       children: [n("div", {
@@ -4010,7 +4087,7 @@
         })]
       }), n("div", {
         className: "fc-muted fc-task-hint",
-        children: "Можно прямо во фразе: «позвонить в банк в четверг», «оплатить визу 12 сентября»"
+        children: "Можно прямо во фразе: «позвонить в банк в четверг», «оплатить визу 12 сентября», «купить масло на днях»"
       }), v && n("button", {
         className: "fc-card fc-task-empty",
         onClick: c,
@@ -4028,6 +4105,9 @@
       }), n(_, {
         title: "Сегодня",
         list: h.today
+      }), n(_, {
+        title: "В ближайшее время",
+        list: h.soon
       }), n(_, {
         title: "Дальше",
         list: h.later
@@ -4062,11 +4142,12 @@
       [r, u] = C(d ? l ? l.text : "" : e.text || ""),
       [g, h] = C(d ? l && l.due || "" : e.due || ""),
       [p, _] = C(d ? l && l.dueTime || "" : e.dueTime || ""),
+      [zSoon, zSetSoon] = C(d ? !!(l && l.soon) : !!e.soon),
       [v, x] = C(""),
       [I, T] = C(!1),
       k = D => {
         let M = new Date;
-        M.setDate(M.getDate() + D), h(We(M))
+        M.setDate(M.getDate() + D), h(We(M)), zSetSoon(!1)
       };
     return n(be, {
       onClose: c,
@@ -4101,11 +4182,17 @@
       }), n("div", {
         className: "fc-cur-chips fc-wrap",
         children: [n("button", {
-          className: "fc-chip fc-chip-sm" + (g ? "" : " fc-chip-on"),
+          className: "fc-chip fc-chip-sm" + (!g && !zSoon ? " fc-chip-on" : ""),
           onClick: () => {
-            h(""), _("")
+            h(""), _(""), zSetSoon(!1)
           },
           children: "Когда-нибудь"
+        }), n("button", {
+          className: "fc-chip fc-chip-sm" + (!g && zSoon ? " fc-chip-on" : ""),
+          onClick: () => {
+            h(""), _(""), zSetSoon(!0)
+          },
+          children: "На днях"
         }), n("button", {
           className: "fc-chip fc-chip-sm",
           onClick: () => k(0),
@@ -4152,6 +4239,7 @@
             text: D,
             due: g || null,
             dueTime: g && p ? p : null,
+            soon: !g && zSoon,
             doneAt: d ? null : e.doneAt || null
           })
         },
@@ -4177,6 +4265,52 @@
     })
   }
 
+  function zRangeWindow(e) {
+    let t = g => `${g.getFullYear()}-${String(g.getMonth()+1).padStart(2,"0")}-${String(g.getDate()).padStart(2,"0")}`;
+    if (e.mode === "range") {
+      let a = e.from || "",
+        s = e.to || "";
+      a && s && a > s && ([a, s] = [s, a]);
+      if (!a || !s) return {
+        from: "9999-12-31",
+        to: "0000-01-01",
+        prevFrom: "9999-12-31",
+        prevTo: "0000-01-01",
+        ready: !1,
+        label: "Выберите даты",
+        prevLabel: "предыдущий период"
+      };
+      let o = new Date(a + "T00:00:00"),
+        c = new Date(s + "T00:00:00"),
+        d = Math.round((c - o) / 864e5) + 1,
+        l = new Date(o);
+      l.setDate(l.getDate() - 1);
+      let r = new Date(l);
+      return r.setDate(r.getDate() - (d - 1)), {
+        from: a,
+        to: s,
+        prevFrom: t(r),
+        prevTo: t(l),
+        ready: !0,
+        label: zRangeLabel(a, s),
+        prevLabel: `предыдущие ${d} ${an(d,"день","дня","дней")}`
+      }
+    }
+    let a = new Date(e.y, e.m, 1),
+      s = new Date(e.y, e.m + 1, 0),
+      o = new Date(e.y, e.m - 1, 1),
+      c = new Date(e.y, e.m, 0);
+    return {
+      from: t(a),
+      to: t(s),
+      prevFrom: t(o),
+      prevTo: t(c),
+      ready: !0,
+      label: "",
+      prevLabel: "прошлый месяц"
+    }
+  }
+
   function $o({
     data: e,
     walletId: t,
@@ -4190,15 +4324,15 @@
     reserved: u
   }) {
     let g = e.wallets.find(S => S.id === t) || e.wallets[0],
-      h = `${s.y}-${String(s.m+1).padStart(2,"0")}`,
-      p = s.m === 0 ? {
-        y: s.y - 1,
-        m: 11
-      } : {
-        y: s.y,
-        m: s.m - 1
-      },
-      _ = `${p.y}-${String(p.m+1).padStart(2,"0")}`,
+      zIsRange = s.mode === "range",
+      zWin = zRangeWindow(s),
+      zCurFrom = zWin.from,
+      zCurTo = zWin.to,
+      zPrevFrom = zWin.prevFrom,
+      zPrevTo = zWin.prevTo,
+      zReady = zWin.ready,
+      zPrevLabel = zWin.prevLabel,
+      zIn = (S, R, q) => S.date >= R && S.date <= q,
       v = Object.fromEntries(e.categories.map(S => [S.id, S])),
       x = {};
     for (let S of g.currencies) x[S] = {
@@ -4208,7 +4342,7 @@
     let I = {},
       T = {};
     for (let S of e.txs)
-      if (S.date.startsWith(h)) {
+      if (zIn(S, zCurFrom, zCurTo)) {
         if (S.type === "transfer") {
           S.fromWalletId === g.id && (I[S.fromCurrency] || (I[S.fromCurrency] = 0), I[S.fromCurrency] += S.fromAmount), S.toWalletId === g.id && (T[S.toCurrency] || (T[S.toCurrency] = 0), T[S.toCurrency] += S.toAmount);
           continue
@@ -4220,8 +4354,8 @@
       } let k = {};
     for (let S of e.txs) {
       if (S.type !== "expense" || S.walletId !== g.id) continue;
-      let R = S.date.startsWith(h),
-        q = !R && S.date.startsWith(_);
+      let R = zIn(S, zCurFrom, zCurTo),
+        q = !R && zIn(S, zPrevFrom, zPrevTo);
       if (!R && !q) continue;
       let Q = v[S.categoryId],
         ne = Q ? Q.name : S.catName || "Прочее",
@@ -4237,10 +4371,11 @@
     let D = S => {
         let R = s.m + S,
           q = s.y;
-        R < 0 && (R = 11, q--), R > 11 && (R = 0, q++), o({
+        R < 0 && (R = 11, q--), R > 11 && (R = 0, q++), o(Q => ({
+          ...Q,
           y: q,
           m: R
-        })
+        }))
       },
       M = Object.keys(I).length > 0 || Object.keys(T).length > 0,
       j = g.currencies || [],
@@ -4296,6 +4431,46 @@
           children: S.name
         }, S.id))
       }), n("div", {
+        className: "fc-seg fc-period-seg",
+        children: [
+          ["month", "Месяц"],
+          ["range", "Период"]
+        ].map(([S, R]) => n("button", {
+          className: "fc-seg-btn" + ((s.mode === "range" ? "range" : "month") === S ? " fc-seg-on-period" : ""),
+          onClick: () => o(q => ({
+            ...q,
+            mode: S
+          })),
+          children: R
+        }, S))
+      }), zIsRange ? n(X, {
+        children: [n("div", {
+          className: "fc-range-row",
+          children: [n("input", {
+            className: "fc-input",
+            type: "date",
+            value: s.from || "",
+            onChange: S => o(R => ({
+              ...R,
+              from: S.target.value
+            }))
+          }), n("span", {
+            className: "fc-muted",
+            children: "—"
+          }), n("input", {
+            className: "fc-input",
+            type: "date",
+            value: s.to || "",
+            onChange: S => o(R => ({
+              ...R,
+              to: S.target.value
+            }))
+          })]
+        }), n("div", {
+          className: "fc-month-label fc-range-label",
+          children: zWin.label
+        })]
+      }) : n("div", {
         className: "fc-month-nav",
         children: [n("button", {
           className: "fc-month-btn",
@@ -4309,7 +4484,10 @@
           onClick: () => D(1),
           children: "›"
         })]
-      }), N ? n("div", {
+      }), zIsRange && !zReady ? n("div", {
+        className: "fc-card fc-sum-norate",
+        children: "Выберите обе даты периода"
+      }) : N ? n("div", {
         className: "fc-card fc-sum-card",
         children: [j.length > 1 && n("div", {
           className: "fc-seg fc-sum-seg",
@@ -4384,7 +4562,7 @@
               children: ["По категориям · ", E]
             }), n("span", {
               className: "fc-muted",
-              children: se > 0 ? `прошлый месяц: ${V(L(se))}` + ($ === null ? "" : ` · ${$>0?"+":""}${$}%`) : "в прошлом месяце трат не было"
+              children: se > 0 ? `${zPrevLabel}: ${V(L(se))}` + ($ === null ? "" : ` · ${$>0?"+":""}${$}%`) : `за ${zPrevLabel} трат не было`
             })]
           }), te.map(([S, R]) => {
             let q = U.value > 0 ? Math.round(R.cur / U.value * 100) : 0,
@@ -4421,7 +4599,7 @@
             style: {
               marginTop: 4
             },
-            children: "В этом месяце трат нет"
+            children: zIsRange ? "За этот период трат нет" : "В этом месяце трат нет"
           })]
         })]
       }) : n(X, {
@@ -4482,7 +4660,7 @@
                   children: ["По категориям · ", S]
                 }), n("span", {
                   className: "fc-muted",
-                  children: ne > 0 ? `прошлый месяц: ${V(ne)}` + (ie === null || R.expense === 0 ? "" : ` · ${ie>0?"+":""}${ie}%`) : "в прошлом месяце трат не было"
+                  children: ne > 0 ? `${zPrevLabel}: ${V(ne)}` + (ie === null || R.expense === 0 ? "" : ` · ${ie>0?"+":""}${ie}%`) : `за ${zPrevLabel} трат не было`
                 })]
               }), le.map(([oe, de]) => {
                 let P = R.expense > 0 ? Math.round(de.cur / R.expense * 100) : 0,
@@ -4524,7 +4702,7 @@
             })]
           }, S)
         })]
-      }), N && n("div", {
+      }), N && !zIsRange && n("div", {
         className: "fc-card fc-cost-card",
         children: [n("div", {
           className: "fc-card-label",
@@ -7441,6 +7619,9 @@
 .fc-period-label { font-size: 15px; font-weight: 700; }
 .fc-period-sum { font-weight: 700; font-variant-numeric: tabular-nums; }
 .fc-period-empty { font-size: 13px; color: var(--muted); text-align: center; padding: 4px 0 2px; }
+.fc-range-row { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; }
+.fc-range-row .fc-input { flex: 1 1 auto; width: auto; min-width: 0; margin: 0; }
+.fc-range-label { text-align: center; margin-bottom: 8px; }
 .fc-sum-part { white-space: nowrap; }
 .fc-search { margin-bottom: 2px; }
 .fc-day-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 14px 0 6px; }
