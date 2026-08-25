@@ -1923,7 +1923,7 @@
     let [e, t] = C(null), a = i => t(f => {
       let m = typeof i == "function" ? i(f) : i;
       return f ? va(f, m) : m
-    }), [s, o] = C(!1), [c, d] = C("home"), l = e && (e.section === "tasks" || e.section === "habits") ? "__tasks" : c, [r, u] = C(null), [g, h] = C(null), [p, _] = C("all"), v = e && (e.section === "tasks" || e.section === "habits") ? e.section : "money", x = i => a(f => ({
+    }), [s, o] = C(!1), [c, d] = C("home"), l = e && (e.section === "tasks" || e.section === "habits" || e.section === "journal") ? "__tasks" : c, [r, u] = C(null), [g, h] = C(null), [p, _] = C("all"), v = e && (e.section === "tasks" || e.section === "habits" || e.section === "journal") ? e.section : "money", x = i => a(f => ({
       ...f,
       section: i
     })), [I, T] = C(null), [k, D] = C(() => {
@@ -2382,7 +2382,7 @@
         let i = new URLSearchParams(window.location.search),
           f = i.get("action"),
           m = (i.get("draft") || "").replace(/\s+/g, " ").trim().slice(0, 500),
-          b = i.get("section") === "tasks" ? "tasks" : i.get("section") === "habits" ? "habits" : null;
+          b = i.get("section") === "tasks" ? "tasks" : i.get("section") === "habits" ? "habits" : i.get("section") === "journal" ? "journal" : null;
         if (f !== "add-expense" && !m && !b) return;
         if (B.current = !0, b && (a(O => ({
             ...O,
@@ -2787,6 +2787,13 @@
             kind: "task",
             task: null
           })
+        }), v === "journal" && n(zJournalTab, {
+          tasks: e.tasks || [],
+          habits: e.habits || [],
+          onOpen: i => u({
+            kind: "task",
+            task: i
+          })
         }), v === "habits" && n(HabitsTab, {
           habits: e.habits || [],
           onToggle: tgHabit,
@@ -2922,7 +2929,8 @@
         className: "fc-nav",
         children: [
           ["tasks", "✅", "Дела"],
-          ["habits", "📅", "Ежедневник"]
+          ["habits", "📅", "Ежедневник"],
+          ["journal", "📖", "Журнал"]
         ].map(([i, f, m]) => n("button", {
           className: "fc-nav-btn" + (v === i ? " fc-nav-active" : ""),
           onClick: () => {
@@ -3845,6 +3853,95 @@
      непрерывности. Модель: {id, name, emoji, order, archived,
      doneDates: ["YYYY-MM-DD"...], createdAt, updatedAt}. Отметка — дата в
      doneDates; правило синхронизации то же, что у всех личных записей. */
+  /* ===== ТЗ-28: журнал сделанного =====
+     Собирает ленту по дням из уже существующих данных: закрытые дела
+     (doneAt) и отметки практик (doneDates). Ничего не хранит сам. */
+  function zLogDays(e, t) {
+    let a = new Map,
+      s = c => a.get(c) || (a.set(c, {
+        date: c,
+        tasks: [],
+        habits: []
+      }), a.get(c));
+    for (let c of e || []) c && c.doneAt && s(We(new Date(c.doneAt))).tasks.push(c);
+    for (let c of t || [])
+      if (c)
+        for (let d of c.doneDates || []) d && s(d).habits.push(c);
+    let o = [...a.values()];
+    o.sort((c, d) => c.date < d.date ? 1 : c.date > d.date ? -1 : 0);
+    for (let c of o) c.tasks.sort((d, l) => (Number(l.doneAt) || 0) - (Number(d.doneAt) || 0)), c.habits.sort((d, l) => he(d.order) - he(l.order));
+    return o
+  }
+
+  function zJournalTab({
+    tasks: e,
+    habits: t,
+    onOpen: a
+  }) {
+    let [s, o] = C(14),
+      c = Ae(() => zLogDays(e, t), [e, t]),
+      d = c.slice(0, s),
+      l = ze().slice(0, 7),
+      r = c.filter(p => p.date.startsWith(l)),
+      u = r.reduce((p, _) => p + _.tasks.length, 0),
+      g = r.reduce((p, _) => p + _.habits.length, 0),
+      h = new Date(l + "-01T00:00:00");
+    return n("div", {
+      className: "fc-page",
+      children: [n("div", {
+        className: "fc-title",
+        children: "Журнал"
+      }), c.length > 0 && n("div", {
+        className: "fc-habit-progress",
+        children: `${Ze[h.getMonth()]}: ${u} ${an(u,"дело","дела","дел")}, ${g} ${an(g,"отметка","отметки","отметок")} практик`
+      }), c.length === 0 && n("div", {
+        className: "fc-card fc-task-empty",
+        children: [n("span", {
+          className: "fc-sub-name",
+          children: "📖 Журнал пока пуст"
+        }), n("span", {
+          className: "fc-muted",
+          children: "Закрывайте дела и отмечайте практики — здесь будет видно, что и когда сделано"
+        })]
+      }), d.map(p => n("div", {
+        className: "fc-log-day",
+        children: [n("div", {
+          className: "fc-day-head",
+          children: [n("div", {
+            className: "fc-date-label",
+            children: zHistDay(p.date)
+          }), n("div", {
+            className: "fc-day-total",
+            children: [p.tasks.length > 0 && `${p.tasks.length} ${an(p.tasks.length,"дело","дела","дел")}`, p.tasks.length > 0 && p.habits.length > 0 && " · ", p.habits.length > 0 && `${p.habits.length}/${(t||[]).filter(_ => _ && !_.archived).length}`]
+          })]
+        }), p.tasks.map(_ => n("button", {
+          className: "fc-log-task",
+          onClick: () => a(_),
+          children: [n("span", {
+            className: "fc-log-check",
+            children: "✓"
+          }), n("span", {
+            className: "fc-log-text",
+            children: _.text
+          })]
+        }, _.id)), p.habits.length > 0 && n("div", {
+          className: "fc-log-habits",
+          children: p.habits.map(_ => n("span", {
+            className: "fc-log-chip",
+            children: (_.emoji ? _.emoji + " " : "") + _.name
+          }, _.id))
+        })]
+      }, p.date)), c.length > s && n("button", {
+        className: "fc-ghost",
+        style: {
+          marginTop: 14
+        },
+        onClick: () => o(p => p + 14),
+        children: "Показать ещё"
+      })]
+    })
+  }
+
   var HABIT_SEED = [
     ["🇹🇭", "Тайский"],
     ["🇬🇧", "Английский"],
@@ -7693,6 +7790,21 @@
 .fc-habit-day-on { background: var(--accent); }
 .fc-habit-progress { font-size: 14px; font-weight: 700; color: var(--muted); margin: 2px 0 12px; }
 .fc-habit-progress-all { color: var(--accent); }
+
+/* ТЗ-28: журнал сделанного */
+.fc-log-day { margin-top: 16px; }
+.fc-log-task {
+  display: flex; align-items: flex-start; gap: 9px; width: 100%; text-align: left;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  padding: 9px 12px; margin-bottom: 6px; cursor: pointer; font: inherit; color: inherit;
+}
+.fc-log-check { color: var(--accent); font-weight: 700; flex-shrink: 0; }
+.fc-log-text { flex: 1 1 auto; min-width: 0; font-size: 15px; }
+.fc-log-habits { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 4px; }
+.fc-log-chip {
+  font-size: 12px; padding: 4px 9px; border-radius: 999px;
+  background: var(--transfer-soft, var(--surface)); border: 1px solid var(--line); color: var(--muted);
+}
 
 /* ТЗ-27: утренний план */
 .fc-task-plan {
