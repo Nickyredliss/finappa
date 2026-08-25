@@ -1425,6 +1425,15 @@
     return -1
   }
   var co = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+  var zWD = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"],
+    zWDF = ["воскресенье", "понедельник", "вторник", "среда", "четверг", "пятница", "суббота"];
+  /* Заголовок дня в Истории: «16 августа, воскресенье». «Сегодня» и «Вчера»
+     день недели не нужен — он и так в голове. */
+  var zHistDay = e => {
+    let t = Ue(e);
+    if (t === "Сегодня" || t === "Вчера") return t;
+    return t + ", " + zWDF[new Date(e + "T00:00:00").getDay()]
+  };
 
   function ja(e, t) {
     if (!e || !e.due) return "";
@@ -1434,7 +1443,7 @@
     if (e.due === a) o = "сегодня";
     else {
       let c = We(new Date(new Date(a + "T00:00:00").getTime() + 864e5));
-      o = e.due === c ? "завтра" : `${s.getDate()} ${co[s.getMonth()]}`
+      o = e.due === c ? "завтра" : `${s.getDate()} ${co[s.getMonth()]}, ${zWD[s.getDay()]}`
     }
     return e.dueTime ? `${o}, ${e.dueTime}` : o
   }
@@ -3769,7 +3778,7 @@
             className: "fc-day-head",
             children: [n("div", {
               className: "fc-date-label",
-              children: Ue(N.date)
+              children: zHistDay(N.date)
             }), Object.keys(z).length > 0 && n(en, {
               sums: z,
               sign: "−",
@@ -3792,10 +3801,14 @@
     task: e,
     today: t,
     onToggle: a,
-    onOpen: s
+    onOpen: s,
+    onPlan: zP,
+    onUnplan: zU
   }) {
     let o = ja(e, t),
-      c = Ra(e, t);
+      c = Ra(e, t),
+      zShowPlan = zP && !e.doneAt,
+      zShowUn = zU && e.planPrev && !e.doneAt;
     return n("div", {
       className: "fc-task" + (e.doneAt ? " fc-task-done" : ""),
       children: [n("button", {
@@ -3813,6 +3826,16 @@
           className: "fc-task-due",
           children: c > 0 ? `просрочено на ${c} ${an(c,"день","дня","дней")}` : o
         })]
+      }), zShowPlan && n("button", {
+        className: "fc-task-plan",
+        onClick: () => zP(e),
+        "aria-label": "В сегодняшний план",
+        children: "☀️"
+      }), zShowUn && n("button", {
+        className: "fc-task-plan fc-task-unplan",
+        onClick: () => zU(e),
+        "aria-label": "Вернуть из плана",
+        children: "↩"
       })]
     })
   }
@@ -4033,7 +4056,28 @@
     onOpen: o,
     onNew: c
   }) {
-    let [d, l] = C(""), [r, u] = C(!1), g = ze(), h = Ae(() => Xt(e, g), [e, g]), p = () => {
+    let [d, l] = C(""), [r, u] = C(!1), g = ze(), h = Ae(() => Xt(e, g), [e, g]),
+      /* ☀️: дело уезжает в «Сегодня», а откуда пришло — запоминается в planPrev.
+         ↩: возвращает ровно туда (включая исходную дату у дел из «Дальше»)
+         и стирает метку. Утренний план — черновик, а не приговор. */
+      zPlan = k => a({
+        id: k.id,
+        due: g,
+        dueTime: null,
+        soon: !1,
+        planPrev: {
+          due: k.due || null,
+          soon: !!k.soon
+        }
+      }),
+      zUnplan = k => a({
+        id: k.id,
+        due: k.planPrev && k.planPrev.due || null,
+        dueTime: null,
+        soon: !!(k.planPrev && k.planPrev.soon),
+        planPrev: null
+      }),
+      p = () => {
       let x = d.trim();
       if (!x) return;
       let I = qt(x);
@@ -4047,7 +4091,8 @@
     }, _ = ({
       title: x,
       list: I,
-      tone: T
+      tone: T,
+      act: zAct
     }) => I.length ? n(X, {
       children: [n("div", {
         className: "fc-card-label" + (T ? " " + T : ""),
@@ -4062,7 +4107,9 @@
         task: k,
         today: g,
         onToggle: t,
-        onOpen: o
+        onOpen: o,
+        onPlan: zAct === "plan" ? zPlan : null,
+        onUnplan: zAct === "unplan" ? zUnplan : null
       }, k.id))]
     }) : null, v = !h.overdue.length && !h.today.length && !h.soon.length && !h.later.length && !h.someday.length;
     return n("div", {
@@ -4098,22 +4145,29 @@
           className: "fc-muted",
           children: "Запишите первое — или надиктуйте его Быстрой командой →"
         })]
+      }), !h.today.length && h.soon.length + h.later.length + h.someday.length > 0 && n("div", {
+        className: "fc-morning-hint",
+        children: "☀️ Собери план на сегодня — коснись солнышка у дела, и оно встанет в «Сегодня»"
       }), n(_, {
         title: "Просрочено",
         list: h.overdue,
         tone: "fc-label-warn"
       }), n(_, {
         title: "Сегодня",
-        list: h.today
+        list: h.today,
+        act: "unplan"
       }), n(_, {
         title: "В ближайшее время",
-        list: h.soon
+        list: h.soon,
+        act: "plan"
       }), n(_, {
         title: "Дальше",
-        list: h.later
+        list: h.later,
+        act: "plan"
       }), n(_, {
         title: "Когда-нибудь",
-        list: h.someday
+        list: h.someday,
+        act: "plan"
       }), h.doneToday.length > 0 && n(X, {
         children: [n("button", {
           className: "fc-done-toggle",
@@ -4222,7 +4276,7 @@
         })]
       }), g && n("div", {
         className: "fc-muted fc-task-hint",
-        children: ["Напомним ", p ? "в ближайший час после " + p : "утром", " — приложение просыпается раз в час, поэтому точность до часа."]
+        children: ["Это " + zWDF[new Date(g + "T00:00:00").getDay()] + ". Напомним ", p ? "в ближайший час после " + p : "утром", " — приложение просыпается раз в час, поэтому точность до часа."]
       }), v && n("div", {
         className: "fc-err-text",
         children: v
@@ -7639,6 +7693,19 @@
 .fc-habit-day-on { background: var(--accent); }
 .fc-habit-progress { font-size: 14px; font-weight: 700; color: var(--muted); margin: 2px 0 12px; }
 .fc-habit-progress-all { color: var(--accent); }
+
+/* ТЗ-27: утренний план */
+.fc-task-plan {
+  flex: 0 0 38px; width: 38px; height: 38px; border-radius: 50%; align-self: center;
+  border: 1px solid var(--line); background: var(--surface); cursor: pointer;
+  font-size: 17px; line-height: 1; padding: 0;
+}
+.fc-task-unplan { color: var(--muted); font-size: 19px; }
+.fc-morning-hint {
+  margin-top: 14px; padding: 10px 12px; border-radius: 12px; font-size: 13px;
+  color: var(--accent); background: var(--surface); border: 1px dashed var(--accent);
+  line-height: 1.45;
+}
 
 button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 `;
