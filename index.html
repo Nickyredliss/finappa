@@ -895,7 +895,7 @@
       ids: e
     }),
     Yt = Ut;
-  var Fe = ["wallets", "categories", "txs", "subscriptions", "drafts", "goals", "tasks", "habits"],
+  var Fe = ["wallets", "categories", "txs", "subscriptions", "drafts", "goals", "tasks", "habits", "wishes"],
     _t = ["activeWalletId", "myName", "lastUsed", "inboxToken", "sumCurrency", "theme", "section", "habitsSeeded"];
   var ga = ["syncSig", "members"],
     he = e => Number(e) || 0,
@@ -1047,7 +1047,7 @@
   }
 
   function wa(e) {
-    return e ? !(e.txs || []).length && !(e.subscriptions || []).length && !(e.drafts || []).length && !(e.goals || []).length && !(e.tasks || []).length && !(e.habits || []).length && !(e.pTomb || []).length && (e.wallets || []).length <= 1 : !1
+    return e ? !(e.txs || []).length && !(e.subscriptions || []).length && !(e.drafts || []).length && !(e.goals || []).length && !(e.tasks || []).length && !(e.habits || []).length && !(e.wishes || []).length && !(e.pTomb || []).length && (e.wallets || []).length <= 1 : !1
   }
 
   function $e(e) {
@@ -2610,6 +2610,21 @@
           doneAt: m.doneAt ? null : Date.now()
         } : m)
       })),
+      svWish = i => a(f => ({
+        ...f,
+        wishes: [...f.wishes || [], {
+          ...i,
+          doneAt: null,
+          createdAt: Date.now()
+        }]
+      })),
+      tgWish = i => a(f => ({
+        ...f,
+        wishes: (f.wishes || []).map(m => m.id === i ? {
+          ...m,
+          doneAt: m.doneAt ? null : Date.now()
+        } : m)
+      })),
       svHabit = i => a(f => {
         let m = f.habits || [],
           b = m.find(O => O.id === i.id),
@@ -2793,7 +2808,16 @@
             task: null
           })
         }), v === "advisor" && n(zAdvisorTab, {
-          onToast: E
+          onToast: E,
+          wishes: e.wishes || [],
+          onSendWish: i => {
+            svWish({
+              id: pe(),
+              text: i,
+              at: Date.now()
+            }), E("Отправлено в работу ✓")
+          },
+          onToggleWish: tgWish
         }), v === "journal" && n(zJournalTab, {
           tasks: e.tasks || [],
           habits: e.habits || [],
@@ -3969,13 +3993,31 @@
     "Сравни этот месяц с прошлым"
   ];
 
+  /* Блок ```тз ... ``` в ответе советника. Ищем и с языком, и без него —
+     модель иногда пишет ```тз, иногда просто ```. */
+  var Z_TZ_RE = /```(?:тз|tz)?\s*\n([\s\S]*?)```/i;
+  const zFindTz = (txt) => {
+    const m = String(txt || "").match(Z_TZ_RE);
+    if (!m) return null;
+    const body = String(m[1] || "").trim();
+    /* Пустой блок или блок без задачи — не ТЗ, кнопку не показываем: пусть
+       лучше её не будет, чем она отправит в очередь пустоту. */
+    return body.length >= 20 ? body : null
+  };
+
   function zAdvisorTab({
-    onToast: e
+    onToast: e,
+    wishes: zW,
+    onSendWish: zSend,
+    onToggleWish: zToggle
   }) {
     let [t, a] = C(() => zChatLoad()),
       [s, o] = C(""),
       [c, d] = C(!1),
-      [l, r] = C("");
+      [l, r] = C(""),
+      [zOpen, zSetOpen] = C(!1),
+      zList = (zW || []).slice().sort((h, p) => (Number(p.at) || 0) - (Number(h.at) || 0)),
+      zPending = zList.filter(h => !h.doneAt).length;
     /* Скроллим к последнему сообщению через DOM, а не через ref: в этом
        бандле имена хуков минифицированы, и угадывать псевдоним useRef —
        ровно тот способ поймать «Rt is not a function» уже в проде. */
@@ -4010,6 +4052,32 @@
       children: [n("div", {
         className: "fc-title",
         children: "Советник"
+      }), zList.length > 0 && n(X, {
+        children: [n("button", {
+          className: "fc-done-toggle",
+          onClick: () => zSetOpen(h => !h),
+          children: ["📋 Отправлено в работу · ", zPending, zPending !== zList.length ? ` (из ${zList.length})` : "", " ", zOpen ? "▲" : "▼"]
+        }), zOpen && zList.map(h => n("div", {
+          className: "fc-wish" + (h.doneAt ? " fc-wish-done" : ""),
+          children: [n("button", {
+            className: "fc-task-box" + (h.doneAt ? " fc-task-box-on" : ""),
+            onClick: () => zToggle(h.id),
+            "aria-label": h.doneAt ? "Вернуть в работу" : "Отметить сделанным",
+            children: h.doneAt ? "✓" : ""
+          }), n("div", {
+            className: "fc-wish-body",
+            children: [n("div", {
+              className: "fc-wish-text",
+              children: String(h.text || "").slice(0, 400)
+            }), n("div", {
+              className: "fc-muted",
+              style: {
+                fontSize: 12
+              },
+              children: Ue(We(new Date(Number(h.at) || Date.now())))
+            })]
+          })]
+        }, h.id))]
       }), t.length === 0 && !c && n(X, {
         children: [n("div", {
           className: "fc-muted fc-task-hint",
@@ -4030,14 +4098,32 @@
         children: [n("div", {
           className: "fc-msg-text",
           children: h.text
-        }), h.role === "assistant" && n("button", {
-          className: "fc-msg-copy",
-          onClick: () => {
-            try {
-              navigator.clipboard.writeText(h.text), e && e("Скопировано ✓")
-            } catch {}
-          },
-          children: "Копировать"
+        }), h.role === "assistant" && n("div", {
+          className: "fc-msg-acts",
+          children: [n("button", {
+            className: "fc-msg-copy",
+            onClick: () => {
+              try {
+                navigator.clipboard.writeText(h.text), e && e("Скопировано ✓")
+              } catch {}
+            },
+            children: "Копировать"
+          }), zFindTz(h.text) && !h.sent && n("button", {
+            className: "fc-msg-send",
+            onClick: () => {
+              zSend(zFindTz(h.text));
+              let z = t.slice();
+              z[p] = { ...h, sent: 1 };
+              a(z), zChatSave(z)
+            },
+            children: "📋 Отправить в работу"
+          }), h.sent && n("span", {
+            className: "fc-muted",
+            style: {
+              fontSize: 12
+            },
+            children: "отправлено продакт-менеджеру ✓"
+          })]
         })]
       }, p)), c && n("div", {
         className: "fc-msg fc-msg-ai",
@@ -7932,6 +8018,17 @@
 .fc-habit-day-on { background: var(--accent); }
 .fc-habit-progress { font-size: 14px; font-weight: 700; color: var(--muted); margin: 2px 0 12px; }
 .fc-habit-progress-all { color: var(--accent); }
+
+/* ТЗ-30: очередь пожеланий */
+.fc-wish { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; margin-top: 6px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.fc-wish-done { opacity: 0.55; }
+.fc-wish-done .fc-wish-text { text-decoration: line-through; }
+.fc-wish-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.fc-wish-text { font-size: 13px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
+.fc-msg-acts { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.fc-msg-send { background: none; border: none; padding: 0 2px; font-size: 12px;
+  color: var(--accent); font-weight: 700; cursor: pointer; font-family: inherit; }
 
 /* ТЗ-29: советник */
 .fc-msg { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
