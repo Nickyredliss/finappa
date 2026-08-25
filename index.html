@@ -887,6 +887,7 @@
     }),
     Bt = (e, t) => Ce("DELETE", `/api/shared/wallets/${e}/members/${t}`);
   var Ht = e => Ce("DELETE", `/api/shared/wallets/${e}`),
+    zAsk = e => Ce("POST", "/api/advisor/ask", e),
     fa = e => Ce("POST", "/api/personal/sync", e),
     pa = () => Ce("GET", "/api/personal/sync"),
     ma = () => Ce("GET", "/api/inbox"),
@@ -1923,7 +1924,7 @@
     let [e, t] = C(null), a = i => t(f => {
       let m = typeof i == "function" ? i(f) : i;
       return f ? va(f, m) : m
-    }), [s, o] = C(!1), [c, d] = C("home"), l = e && (e.section === "tasks" || e.section === "habits" || e.section === "journal") ? "__tasks" : c, [r, u] = C(null), [g, h] = C(null), [p, _] = C("all"), v = e && (e.section === "tasks" || e.section === "habits" || e.section === "journal") ? e.section : "money", x = i => a(f => ({
+    }), [s, o] = C(!1), [c, d] = C("home"), l = e && (e.section === "tasks" || e.section === "habits" || e.section === "journal" || e.section === "advisor") ? "__tasks" : c, [r, u] = C(null), [g, h] = C(null), [p, _] = C("all"), v = e && (e.section === "tasks" || e.section === "habits" || e.section === "journal" || e.section === "advisor") ? e.section : "money", x = i => a(f => ({
       ...f,
       section: i
     })), [I, T] = C(null), [k, D] = C(() => {
@@ -2382,7 +2383,7 @@
         let i = new URLSearchParams(window.location.search),
           f = i.get("action"),
           m = (i.get("draft") || "").replace(/\s+/g, " ").trim().slice(0, 500),
-          b = i.get("section") === "tasks" ? "tasks" : i.get("section") === "habits" ? "habits" : i.get("section") === "journal" ? "journal" : null;
+          b = i.get("section") === "tasks" ? "tasks" : i.get("section") === "habits" ? "habits" : i.get("section") === "journal" ? "journal" : i.get("section") === "advisor" ? "advisor" : null;
         if (f !== "add-expense" && !m && !b) return;
         if (B.current = !0, b && (a(O => ({
             ...O,
@@ -2765,12 +2766,16 @@
             children: (e.drafts || []).length
           })]
         }), n("button", {
-          className: "fc-sec-btn" + (v !== "money" ? " fc-sec-on" : ""),
+          className: "fc-sec-btn" + (v !== "money" && v !== "advisor" ? " fc-sec-on" : ""),
           onClick: () => x("tasks"),
           children: ["✅ Дела", pn > 0 && n("span", {
             className: "fc-sec-dot",
             children: pn
           })]
+        }), n("button", {
+          className: "fc-sec-btn" + (v === "advisor" ? " fc-sec-on" : ""),
+          onClick: () => x("advisor"),
+          children: "🧠 Советник"
         })]
       }), n("div", {
         className: "fc-screen",
@@ -2787,6 +2792,8 @@
             kind: "task",
             task: null
           })
+        }), v === "advisor" && n(zAdvisorTab, {
+          onToast: E
         }), v === "journal" && n(zJournalTab, {
           tasks: e.tasks || [],
           habits: e.habits || [],
@@ -2925,7 +2932,7 @@
             kind: "join"
           })
         })]
-      }), v !== "money" && n("nav", {
+      }), v !== "money" && v !== "advisor" && n("nav", {
         className: "fc-nav",
         children: [
           ["tasks", "✅", "Дела"],
@@ -3938,6 +3945,141 @@
         },
         onClick: () => o(p => p + 14),
         children: "Показать ещё"
+      })]
+    })
+  }
+
+  /* ===== ТЗ-29: советник ===== */
+  var Z_CHAT_KEY = "finappa-advisor-chat";
+  var Z_CHAT_MAX = 12;
+  const zChatLoad = () => {
+    try {
+      const r = JSON.parse(localStorage.getItem(Z_CHAT_KEY) || "[]");
+      return Array.isArray(r) ? r.slice(-Z_CHAT_MAX) : []
+    } catch { return [] }
+  };
+  const zChatSave = (m) => {
+    try { localStorage.setItem(Z_CHAT_KEY, JSON.stringify(m.slice(-Z_CHAT_MAX))) } catch {}
+  };
+
+  var Z_HINTS = [
+    "На что у меня уходит больше всего в этом месяце?",
+    "Что я сделал за последнюю неделю?",
+    "Какие дела у меня зависли?",
+    "Сравни этот месяц с прошлым"
+  ];
+
+  function zAdvisorTab({
+    onToast: e
+  }) {
+    let [t, a] = C(() => zChatLoad()),
+      [s, o] = C(""),
+      [c, d] = C(!1),
+      [l, r] = C("");
+    /* Скроллим к последнему сообщению через DOM, а не через ref: в этом
+       бандле имена хуков минифицированы, и угадывать псевдоним useRef —
+       ровно тот способ поймать «Rt is not a function» уже в проде. */
+    we(() => {
+      try {
+        let h = document.querySelector(".fc-msg:last-of-type");
+        h && h.scrollIntoView({ behavior: "smooth", block: "end" })
+      } catch {}
+    }, [t, c]);
+    let g = async (h) => {
+      let p = String(h == null ? s : h).trim();
+      if (!p || c) return;
+      r("");
+      let _ = [...t, { role: "user", text: p }];
+      a(_), zChatSave(_), o(""), d(!0);
+      try {
+        let v = await zAsk({
+          question: p,
+          history: t.slice(-Z_CHAT_MAX)
+        });
+        let x = [..._, { role: "assistant", text: v.answer || "" }];
+        a(x), zChatSave(x)
+      } catch (v) {
+        let x = v && v.status === 503 ? "Советник ещё не включён: на сервере не задан ключ Claude API." : v && v.status === 429 ? "На сегодня лимит вопросов исчерпан — это защита от лишних трат. Вернитесь завтра." : v && v.status === 409 ? "Данные ещё не доехали на сервер. Откройте приложение при интернете и попробуйте снова." : "Не получилось спросить: " + (v && v.message || "нет связи");
+        r(x)
+      } finally {
+        d(!1)
+      }
+    };
+    return n("div", {
+      className: "fc-page",
+      children: [n("div", {
+        className: "fc-title",
+        children: "Советник"
+      }), t.length === 0 && !c && n(X, {
+        children: [n("div", {
+          className: "fc-muted fc-task-hint",
+          style: {
+            marginBottom: 10
+          },
+          children: "Он видит твои деньги, дела, практики и журнал. Спроси что-нибудь:"
+        }), n("div", {
+          className: "fc-cur-chips fc-wrap",
+          children: Z_HINTS.map(h => n("button", {
+            className: "fc-chip fc-chip-sm",
+            onClick: () => g(h),
+            children: h
+          }, h))
+        })]
+      }), t.map((h, p) => n("div", {
+        className: "fc-msg " + (h.role === "user" ? "fc-msg-me" : "fc-msg-ai"),
+        children: [n("div", {
+          className: "fc-msg-text",
+          children: h.text
+        }), h.role === "assistant" && n("button", {
+          className: "fc-msg-copy",
+          onClick: () => {
+            try {
+              navigator.clipboard.writeText(h.text), e && e("Скопировано ✓")
+            } catch {}
+          },
+          children: "Копировать"
+        })]
+      }, p)), c && n("div", {
+        className: "fc-msg fc-msg-ai",
+        children: n("div", {
+          className: "fc-msg-text fc-muted",
+          children: "Думает…"
+        })
+      }), l && n("div", {
+        className: "fc-err-text",
+        style: {
+          marginTop: 10
+        },
+        children: l
+      }), n("div", {
+        className: "fc-task-add",
+        style: {
+          marginTop: 14
+        },
+        children: [n("input", {
+          className: "fc-input",
+          placeholder: "Спросить о своих данных…",
+          value: s,
+          disabled: c,
+          onChange: h => o(h.target.value),
+          onKeyDown: h => {
+            h.key === "Enter" && g()
+          }
+        }), n("button", {
+          className: "fc-primary fc-task-add-btn",
+          disabled: c,
+          onClick: () => g(),
+          children: "→"
+        })]
+      }), t.length > 0 && n("button", {
+        className: "fc-danger-link",
+        onClick: () => {
+          a([]), zChatSave([]), r("")
+        },
+        children: "Очистить переписку"
+      }), n("div", {
+        className: "fc-muted fc-task-hint",
+        children: "Переписка хранится только на этом устройстве и на другие не уезжает."
       })]
     })
   }
@@ -7790,6 +7932,20 @@
 .fc-habit-day-on { background: var(--accent); }
 .fc-habit-progress { font-size: 14px; font-weight: 700; color: var(--muted); margin: 2px 0 12px; }
 .fc-habit-progress-all { color: var(--accent); }
+
+/* ТЗ-29: советник */
+.fc-msg { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
+.fc-msg-text {
+  padding: 10px 13px; border-radius: 14px; font-size: 15px; line-height: 1.5;
+  white-space: pre-wrap; word-break: break-word;
+}
+.fc-msg-me .fc-msg-text { background: var(--accent); color: #fff; align-self: flex-end; max-width: 88%; }
+.fc-msg-ai .fc-msg-text { background: var(--surface); border: 1px solid var(--line); align-self: flex-start; max-width: 96%; }
+.fc-msg-copy {
+  align-self: flex-start; background: none; border: none; padding: 0 2px;
+  font-size: 12px; color: var(--muted); cursor: pointer; font: inherit; font-size: 12px;
+}
+.fc-sec-switch .fc-sec-btn { font-size: 14px; padding: 10px 6px; }
 
 /* ТЗ-28: журнал сделанного */
 .fc-log-day { margin-top: 16px; }
