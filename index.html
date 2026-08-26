@@ -2625,6 +2625,64 @@
           doneAt: m.doneAt ? null : Date.now()
         } : m)
       })),
+      /* ТЗ-32: советник предложил — человек нажал. Запись создаётся здесь,
+         обычными мутациями, теми же самыми, что и у кнопок в интерфейсе.
+         Отдельного пути «для советника» нет намеренно. */
+      zApply = i => {
+        if (!i) return { ok: !1, err: "Пустое предложение" };
+        let f = m => String(m || "").trim().toLowerCase();
+        if (i.kind === "task") {
+          let m = String(i.title || "").trim();
+          if (!m) return { ok: !1, err: "Пустое дело" };
+          return dn({
+            id: pe(),
+            text: m,
+            due: i.due || null,
+            dueTime: null,
+            soon: !i.due && !!i.soon,
+            doneAt: null
+          }), { ok: !0, toast: "Дело добавлено ✓" }
+        }
+        if (i.kind === "habit_mark") {
+          let m = (e.habits || []).filter(y => y && !y.archived),
+            b = m.find(y => f(y.name) === f(i.title)) || m.find(y => f(y.name).indexOf(f(i.title)) >= 0);
+          if (!b) return { ok: !1, err: "Такой практики нет" };
+          /* tgHabit переключает, а не ставит: без этой проверки подтверждение
+             уже отмеченной практики СНЯЛО бы отметку. */
+          if ((b.doneDates || []).includes(ze())) return { ok: !1, err: "Уже отмечено сегодня" };
+          return tgHabit(b.id), { ok: !0, toast: "Отмечено ✓" }
+        }
+        if (i.kind === "subscription") {
+          let m = (e.wallets || []).filter(k => k && !k.sharedId),
+            b = m.find(k => f(k.name) === f(i.wallet)) || m.find(k => f(k.name).indexOf(f(i.wallet)) >= 0) || m[0];
+          if (!b) return { ok: !1, err: "Кошелёк не найден" };
+          let y = (b.currencies || []).includes(i.currency) ? i.currency : (b.currencies || [])[0];
+          if (!y) return { ok: !1, err: "В кошельке нет валют" };
+          let O = Number(i.amount) || 0;
+          if (!(O > 0)) return { ok: !1, err: "Сумма не разобрана" };
+          let K = parseInt(i.day, 10);
+          if (!(K >= 1 && K <= 31)) return { ok: !1, err: "День списания не разобран" };
+          if ((e.subscriptions || []).some(k => f(k.name) === f(i.title))) return { ok: !1, err: "Такая подписка уже есть" };
+          let de = i.period === "yearly" ? "yearly" : "monthly",
+            Ye = (e.categories || []).find(k => f(k.name) === f(i.category)) || (e.categories || []).find(k => f(k.name) === "прочее") || (e.categories || [])[0];
+          return is({
+            id: pe(),
+            name: String(i.title || "").trim(),
+            amount: O,
+            currency: y,
+            walletId: b.id,
+            categoryId: Ye ? Ye.id : null,
+            periodicity: de,
+            day: K,
+            month: de === "yearly" ? Math.min(12, Math.max(1, parseInt(i.month, 10) || 1)) : void 0,
+            /* Расход за этот период уже записан — помечаем период обработанным,
+               иначе приложение тут же предложит записать тот же платёж второй
+               раз (та же тонкость, что в ТЗ-19). */
+            lastHandled: i.paidOn ? Ga(new Date(i.paidOn + "T00:00:00"), { periodicity: de }) : null
+          }), { ok: !0, toast: "Подписка создана ✓" }
+        }
+        return { ok: !1, err: "Неизвестный вид записи" }
+      },
       svHabit = i => a(f => {
         let m = f.habits || [],
           b = m.find(O => O.id === i.id),
@@ -2809,6 +2867,7 @@
           })
         }), v === "advisor" && n(zAdvisorTab, {
           onToast: E,
+          onApply: zApply,
           wishes: e.wishes || [],
           onSendWish: i => {
             svWish({
@@ -4005,8 +4064,66 @@
     return body.length >= 20 ? body : null
   };
 
+  /* ТЗ-32: карточка предложения. Ничего не создаёт сама — только показывает,
+     что именно будет создано, и отдаёт решение человеку. */
+  var Z_PROP_HEAD = {
+    subscription: "🔁 Новая подписка",
+    task: "✅ Новое дело",
+    habit_mark: "📅 Отметить практику"
+  };
+  const zPropLine = (i) => {
+    if (i.kind === "subscription") {
+      let f = i.period === "yearly" ? `${i.day} ${je[(i.month||1)-1]} каждый год` : `${i.day}-го каждый месяц`;
+      return [V(i.amount) + " " + i.currency, f, i.wallet, i.category].filter(Boolean).join(" · ")
+    }
+    if (i.kind === "task") return i.due ? "Срок: " + Ue(i.due) : i.soon ? "В ближайшее время" : "Без срока";
+    return "Сегодня"
+  };
+  const zPropCard = (i, f, m) => n("div", {
+    className: "fc-prop" + (i.done ? " fc-prop-done" : "") + (i.skip ? " fc-prop-skip" : ""),
+    children: [n("div", {
+      className: "fc-prop-head",
+      children: Z_PROP_HEAD[i.kind] || "Предложение"
+    }), n("div", {
+      className: "fc-prop-title",
+      children: String(i.title || "").slice(0, 120)
+    }), n("div", {
+      className: "fc-prop-meta",
+      children: zPropLine(i)
+    }), i.paidOn && n("div", {
+      className: "fc-muted",
+      style: { fontSize: 12 },
+      children: "Платёж за этот период уже записан " + Ue(i.paidOn) + " — второй раз не спишется."
+    }), i.note && !i.done && !i.skip && n("div", {
+      className: "fc-prop-note",
+      children: String(i.note).slice(0, 200)
+    }), i.err && !i.done && n("div", {
+      className: "fc-prop-err",
+      children: i.err
+    }), i.done ? n("div", {
+      className: "fc-prop-ok",
+      children: "Создано ✓"
+    }) : i.skip ? n("div", {
+      className: "fc-muted",
+      style: { fontSize: 12 },
+      children: "Пропущено"
+    }) : n("div", {
+      className: "fc-prop-acts",
+      children: [n("button", {
+        className: "fc-primary fc-prop-yes",
+        onClick: f,
+        children: "Создать"
+      }), n("button", {
+        className: "fc-prop-no",
+        onClick: m,
+        children: "Не надо"
+      })]
+    })]
+  });
+
   function zAdvisorTab({
     onToast: e,
+    onApply: zDo,
     wishes: zW,
     onSendWish: zSend,
     onToggleWish: zToggle
@@ -4027,6 +4144,23 @@
         h && h.scrollIntoView({ behavior: "smooth", block: "end" })
       } catch {}
     }, [t, c]);
+    let zMark = (h, p, z) => {
+      let $ = t.slice(),
+        Z = $[h];
+      if (!Z) return;
+      let ee = (Z.props || []).slice();
+      ee[p] = { ...ee[p], ...z }, $[h] = { ...Z, props: ee }, a($), zChatSave($)
+    };
+    let zTake = (h, p, z) => {
+      let $ = zDo && zDo(z);
+      if (!$ || !$.ok) {
+        let Z = $ && $.err || "Не получилось";
+        zMark(h, p, { err: Z }), e && e(Z);
+        return
+      }
+      zMark(h, p, { done: 1, err: "" }), e && e($.toast || "Готово ✓")
+    };
+    let zNo = (h, p) => zMark(h, p, { skip: 1 });
     let g = async (h) => {
       let p = String(h == null ? s : h).trim();
       if (!p || c) return;
@@ -4038,7 +4172,11 @@
           question: p,
           history: t.slice(-Z_CHAT_MAX)
         });
-        let x = [..._, { role: "assistant", text: v.answer || "" }];
+        let x = [..._, {
+          role: "assistant",
+          text: v.answer || "",
+          props: Array.isArray(v.proposals) ? v.proposals.slice(0, 3) : []
+        }];
         a(x), zChatSave(x)
       } catch (v) {
         let x = v && v.status === 503 ? "Советник ещё не включён: на сервере не задан ключ Claude API." : v && v.status === 429 ? "На сегодня лимит вопросов исчерпан — это защита от лишних трат. Вернитесь завтра." : v && v.status === 409 ? "Данные ещё не доехали на сервер. Откройте приложение при интернете и попробуйте снова." : "Не получилось спросить: " + (v && v.message || "нет связи");
@@ -4124,6 +4262,11 @@
             },
             children: "отправлено продакт-менеджеру ✓"
           })]
+        }), h.role === "assistant" && (h.props || []).length > 0 && n("div", {
+          className: "fc-props",
+          children: (h.props || []).map((z, $) => n(X, {
+            children: zPropCard(z, () => zTake(p, $, z), () => zNo(p, $))
+          }, z.id || $))
         })]
       }, p)), c && n("div", {
         className: "fc-msg fc-msg-ai",
@@ -8029,6 +8172,25 @@
 .fc-msg-acts { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .fc-msg-send { background: none; border: none; padding: 0 2px; font-size: 12px;
   color: var(--accent); font-weight: 700; cursor: pointer; font-family: inherit; }
+
+/* ТЗ-32: карточка предложения советника */
+.fc-props { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; align-self: flex-start; width: 100%; }
+.fc-prop { background: var(--surface); border: 1px solid var(--accent); border-radius: 14px; padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 4px; }
+.fc-prop-head { font-size: 12px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: 0.03em; }
+.fc-prop-title { font-size: 16px; font-weight: 600; word-break: break-word; }
+.fc-prop-meta { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.fc-prop-note { font-size: 13px; line-height: 1.45; margin-top: 2px; }
+.fc-prop-acts { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+/* .fc-primary тянется на всю ширину — здесь это выпихивало «Не надо» за
+   границу карточки. Ширину и внешний отступ гасим явно. */
+.fc-prop-yes { width: auto; flex: 0 0 auto; padding: 10px 20px; margin-top: 0; font-size: 15px; border-radius: 12px; }
+.fc-prop-no { background: none; border: none; padding: 8px 6px; font-size: 14px; color: var(--muted);
+  cursor: pointer; font-family: inherit; }
+.fc-prop-ok { font-size: 13px; font-weight: 700; color: var(--accent); margin-top: 4px; }
+.fc-prop-err { font-size: 13px; font-weight: 600; color: var(--expense); margin-top: 2px; }
+.fc-prop-done { border-color: var(--line); opacity: 0.75; }
+.fc-prop-skip { border-color: var(--line); opacity: 0.55; }
 
 /* ТЗ-29: советник */
 .fc-msg { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
