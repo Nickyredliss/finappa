@@ -895,7 +895,7 @@
       ids: e
     }),
     Yt = Ut;
-  var Fe = ["wallets", "categories", "txs", "subscriptions", "drafts", "goals", "tasks", "habits", "wishes"],
+  var Fe = ["wallets", "categories", "txs", "subscriptions", "drafts", "goals", "tasks", "habits", "wishes", "shopping"],
     _t = ["activeWalletId", "myName", "lastUsed", "inboxToken", "sumCurrency", "theme", "section", "habitsSeeded"];
   var ga = ["syncSig", "members"],
     he = e => Number(e) || 0,
@@ -1047,7 +1047,7 @@
   }
 
   function wa(e) {
-    return e ? !(e.txs || []).length && !(e.subscriptions || []).length && !(e.drafts || []).length && !(e.goals || []).length && !(e.tasks || []).length && !(e.habits || []).length && !(e.wishes || []).length && !(e.pTomb || []).length && (e.wallets || []).length <= 1 : !1
+    return e ? !(e.txs || []).length && !(e.subscriptions || []).length && !(e.drafts || []).length && !(e.goals || []).length && !(e.tasks || []).length && !(e.habits || []).length && !(e.wishes || []).length && !(e.shopping || []).length && !(e.pTomb || []).length && (e.wallets || []).length <= 1 : !1
   }
 
   function $e(e) {
@@ -1924,7 +1924,7 @@
     let [e, t] = C(null), a = i => t(f => {
       let m = typeof i == "function" ? i(f) : i;
       return f ? va(f, m) : m
-    }), [s, o] = C(!1), [c, d] = C("home"), l = e && (e.section === "tasks" || e.section === "habits" || e.section === "journal" || e.section === "advisor") ? "__tasks" : c, [r, u] = C(null), [g, h] = C(null), [p, _] = C("all"), v = e && (e.section === "tasks" || e.section === "habits" || e.section === "journal" || e.section === "advisor") ? e.section : "money", x = i => a(f => ({
+    }), [s, o] = C(!1), [c, d] = C("home"), l = e && (e.section === "tasks" || e.section === "habits" || e.section === "journal" || e.section === "advisor" || e.section === "shop") ? "__tasks" : c, [r, u] = C(null), [g, h] = C(null), [p, _] = C("all"), v = e && (e.section === "tasks" || e.section === "habits" || e.section === "journal" || e.section === "advisor" || e.section === "shop") ? e.section : "money", x = i => a(f => ({
       ...f,
       section: i
     })), [I, T] = C(null), [k, D] = C(() => {
@@ -2383,7 +2383,7 @@
         let i = new URLSearchParams(window.location.search),
           f = i.get("action"),
           m = (i.get("draft") || "").replace(/\s+/g, " ").trim().slice(0, 500),
-          b = i.get("section") === "tasks" ? "tasks" : i.get("section") === "habits" ? "habits" : i.get("section") === "journal" ? "journal" : i.get("section") === "advisor" ? "advisor" : null;
+          b = i.get("section") === "tasks" ? "tasks" : i.get("section") === "habits" ? "habits" : i.get("section") === "journal" ? "journal" : i.get("section") === "advisor" ? "advisor" : i.get("section") === "shop" ? "shop" : null;
         if (f !== "add-expense" && !m && !b) return;
         if (B.current = !0, b && (a(O => ({
             ...O,
@@ -2643,6 +2643,12 @@
             doneAt: null
           }), { ok: !0, toast: "Дело добавлено ✓" }
         }
+        if (i.kind === "shopping_item") {
+          let m = String(i.title || "").trim();
+          if (!m) return { ok: !1, err: "Пустая строка" };
+          if ((e.shopping || []).some(b => b && !b.doneAt && f(b.text) === f(m))) return { ok: !1, err: "Уже есть в списке" };
+          return svShop(m), { ok: !0, toast: "В список покупок ✓" }
+        }
         if (i.kind === "habit_mark") {
           let m = (e.habits || []).filter(y => y && !y.archived),
             b = m.find(y => f(y.name) === f(i.title)) || m.find(y => f(y.name).indexOf(f(i.title)) >= 0);
@@ -2683,6 +2689,33 @@
         }
         return { ok: !1, err: "Неизвестный вид записи" }
       },
+      /* ТЗ-36: список покупок. Отдельная сущность, а не дело с галочкой:
+         дело закрывается навсегда, покупка возвращается каждую неделю, и
+         смешивать их — значит топить дела в молоке и хлебе. */
+      svShop = i => a(f => ({
+        ...f,
+        shopping: [...f.shopping || [], {
+          id: pe(),
+          text: String(i || "").trim().slice(0, 120),
+          doneAt: null,
+          createdAt: Date.now()
+        }]
+      })),
+      tgShop = i => a(f => ({
+        ...f,
+        shopping: (f.shopping || []).map(m => m.id === i ? {
+          ...m,
+          doneAt: m.doneAt ? null : Date.now()
+        } : m)
+      })),
+      rmShop = i => a(f => ({
+        ...f,
+        shopping: (f.shopping || []).filter(m => m.id !== i)
+      })),
+      clrShop = () => a(f => ({
+        ...f,
+        shopping: (f.shopping || []).filter(m => !m.doneAt)
+      })),
       svHabit = i => a(f => {
         let m = f.habits || [],
           b = m.find(O => O.id === i.id),
@@ -2884,6 +2917,12 @@
             kind: "task",
             task: i
           })
+        }), v === "shop" && n(zShopTab, {
+          items: e.shopping || [],
+          onAdd: svShop,
+          onToggle: tgShop,
+          onDelete: rmShop,
+          onClear: clrShop
         }), v === "habits" && n(HabitsTab, {
           habits: e.habits || [],
           onToggle: tgHabit,
@@ -3019,6 +3058,7 @@
         className: "fc-nav",
         children: [
           ["tasks", "✅", "Дела"],
+          ["shop", "🛒", "Покупки"],
           ["habits", "📅", "Ежедневник"],
           ["journal", "📖", "Журнал"]
         ].map(([i, f, m]) => n("button", {
@@ -3054,6 +3094,7 @@
         mode: "add",
         initialType: r.type,
         wallet: r.wallet,
+        splitTargets: kt,
         categories: e.categories,
         txs: e.txs,
         lastUsed: e.lastUsed[r.wallet.id],
@@ -3079,8 +3120,8 @@
           })
         } : null,
         moveTargets: r.prefill ? kt : [],
-        onSave: i => {
-          if (Ct(i), r.draftId) {
+        onSave: (i, zB) => {
+          if (Ct(i), zB && Ct(zB), r.draftId) {
             R(r.draftId);
             let m = (e.drafts || []).filter(b => b.id !== r.draftId);
             u(m.length ? {
@@ -3088,7 +3129,7 @@
             } : null)
           } else u(null);
           let f = i.walletId !== r.wallet.id ? ve[i.walletId] : null;
-          E(f ? `Записано в «${f.name}» ✓` : "Сохранено ✓")
+          E(zB ? `Разделено: ${V(i.amount)} + ${V(zB.amount)} ${i.currency} ✓` : f ? `Записано в «${f.name}» ✓` : "Сохранено ✓")
         },
         onClose: () => u(r.draftId && (e.drafts || []).length > 1 ? {
           kind: "drafts"
@@ -3108,11 +3149,12 @@
         tx: r.tx,
         txs: e.txs,
         wallet: ve[r.tx.walletId],
+        splitTargets: Me(ve[r.tx.walletId]) ? [] : kt,
         moveTargets: Me(ve[r.tx.walletId]) ? [] : kt,
         categories: e.categories,
-        onSave: i => {
+        onSave: (i, zB) => {
           let f = i.walletId !== r.tx.walletId ? ve[i.walletId] : null;
-          Ct(i), u(null), E(f ? `Перенесено в «${f.name}» ✓` : "Сохранено ✓")
+          Ct(i), zB && Ct(zB), u(null), E(zB ? `Разделено: ${V(i.amount)} + ${V(zB.amount)} ${i.currency} ✓` : f ? `Перенесено в «${f.name}» ✓` : "Сохранено ✓")
         },
         onDelete: () => {
           ln(r.tx.id), u(null), E("Операция удалена")
@@ -4069,7 +4111,8 @@
   var Z_PROP_HEAD = {
     subscription: "🔁 Новая подписка",
     task: "✅ Новое дело",
-    habit_mark: "📅 Отметить практику"
+    habit_mark: "📅 Отметить практику",
+    shopping_item: "🛒 В список покупок"
   };
   const zPropLine = (i) => {
     if (i.kind === "subscription") {
@@ -4077,6 +4120,7 @@
       return [V(i.amount) + " " + i.currency, f, i.wallet, i.category].filter(Boolean).join(" · ")
     }
     if (i.kind === "task") return i.due ? "Срок: " + Ue(i.due) : i.soon ? "В ближайшее время" : "Без срока";
+    if (i.kind === "shopping_item") return "Купить";
     return "Сегодня"
   };
   const zPropCard = (i, f, m) => n("div", {
@@ -4120,6 +4164,104 @@
       })]
     })]
   });
+
+  /* ===== ТЗ-36: список покупок =====
+     Модель: {id, text, doneAt, createdAt, updatedAt} — обычная личная запись,
+     синхронизируется тем же каналом, что и всё остальное.
+     Купленное не исчезает само: вычеркнутая строка остаётся видной до конца
+     похода по магазину (передумал — коснулся ещё раз), а «Убрать купленное»
+     чистит список одним касанием. */
+  function zShopTab({
+    items: e,
+    onAdd: t,
+    onToggle: a,
+    onDelete: s,
+    onClear: o
+  }) {
+    let [c, d] = C(""),
+      l = (e || []).filter(g => g && !g.doneAt).sort((g, h) => (Number(g.createdAt) || 0) - (Number(h.createdAt) || 0)),
+      r = (e || []).filter(g => g && g.doneAt).sort((g, h) => (Number(h.doneAt) || 0) - (Number(g.doneAt) || 0)),
+      u = () => {
+        let g = c.trim();
+        g && (t(g), d(""))
+      },
+      p = g => n("div", {
+        className: "fc-shop" + (g.doneAt ? " fc-shop-done" : ""),
+        children: [n("button", {
+          className: "fc-task-box" + (g.doneAt ? " fc-task-box-on" : ""),
+          onClick: () => a(g.id),
+          "aria-label": g.doneAt ? "Вернуть в список" : "Куплено",
+          children: g.doneAt ? "✓" : ""
+        }), n("button", {
+          className: "fc-shop-body",
+          onClick: () => a(g.id),
+          children: g.text
+        }), n("button", {
+          className: "fc-shop-del",
+          onClick: () => s(g.id),
+          "aria-label": "Убрать из списка",
+          children: "×"
+        })]
+      }, g.id);
+    return n("div", {
+      className: "fc-page",
+      children: [n("div", {
+        className: "fc-title",
+        children: "Покупки"
+      }), n("div", {
+        className: "fc-task-add",
+        children: [n("input", {
+          className: "fc-input",
+          placeholder: "Что купить?",
+          value: c,
+          onChange: g => d(g.target.value),
+          onKeyDown: g => {
+            g.key === "Enter" && u()
+          }
+        }), n("button", {
+          className: "fc-primary fc-task-add-btn",
+          onClick: u,
+          children: "+"
+        })]
+      }), n("div", {
+        className: "fc-muted fc-task-hint",
+        children: "Пишешь по одной строке, в магазине касанием вычёркиваешь."
+      }), l.length === 0 && r.length === 0 && n("div", {
+        className: "fc-card fc-task-empty",
+        children: [n("span", {
+          className: "fc-sub-name",
+          children: "🛒 Список пуст"
+        }), n("span", {
+          className: "fc-muted",
+          children: "Запиши, что нужно купить — вычеркнешь в магазине"
+        })]
+      }), l.length > 0 && n("div", {
+        className: "fc-card-label",
+        style: {
+          marginTop: 16
+        },
+        children: ["Купить ", n("span", {
+          className: "fc-muted",
+          children: ["· ", l.length]
+        })]
+      }), l.map(p), r.length > 0 && n(X, {
+        children: [n("div", {
+          className: "fc-card-label",
+          style: {
+            marginTop: 18
+          },
+          children: ["Куплено ", n("span", {
+            className: "fc-muted",
+            children: ["· ", r.length]
+          })]
+        }), r.map(p), n("button", {
+          className: "fc-danger-link",
+          onClick: o,
+          children: "Убрать купленное"
+        })]
+      })]
+    })
+  }
 
   function zAdvisorTab({
     onToast: e,
@@ -6556,6 +6698,7 @@
     tx: a,
     wallet: s,
     moveTargets: o,
+    splitTargets: zST,
     categories: c,
     txs: d,
     lastUsed: l,
@@ -6584,28 +6727,83 @@
       [fe, S] = C(!1),
       [R, q] = C(!1),
       [Q, ne] = C(!1),
+      /* ТЗ-35: делёж. В поле суммы всегда ОБЩАЯ сумма — так человек вводит
+         ровно то, что заплатил, а приложение считает остаток само. */
+      [zSp, zSetSp] = C(!1),
+      [zSpAmt, zSetSpAmt] = C(""),
+      [zSpW, zSetSpW] = C(null),
       le = Ae(() => Io(c.filter(W => W.type === j), d, A), [c, j, A]),
       ie = (o || []).filter(W => W.id === A || W.currencies.includes(N)),
       oe = (o || []).find(W => W.id === A) || s,
       de = (D || !!M) && ie.length > 1,
       P = D && A !== a.walletId,
+      zSpList = (zST || []).filter(W => W && W.id !== A && (W.currencies || []).includes(N)),
+      zTotal = ge(H),
+      zSpB = ge(zSpAmt),
+      zSpA = et(zTotal - zSpB),
+      zSpOn = zSp && zSpList.length > 0,
+      zSpOk = zSpOn && !!zSpW && zSpB > 0 && zSpA > 0,
+      zSpErr = zSpOn && zSpB > 0 && zTotal > 0 && zSpB >= zTotal,
+      /* Число в комментарии при пустой сумме: человек надиктовал «кофе 150»,
+         разбор не нашёл сумму и увёз фразу целиком в комментарий. Берём
+         последнее число — сумма в такой фразе почти всегда в конце. */
+      zNum = (() => {
+        if (zTotal > 0) return null;
+        let W = String(te).match(/\d+(?:[.,]\d+)?/g);
+        if (!W || !W.length) return null;
+        let De = W[W.length - 1];
+        return ge(De) > 0 ? De : null
+      })(),
+      zTakeNum = () => {
+        if (!zNum) return;
+        U(String(zNum).replace(",", "."));
+        let W = String(te);
+        se(W.slice(0, W.lastIndexOf(zNum)).replace(/[\s,.;–—-]+$/, "").trim()), S(!1)
+      },
+      zSib = D && a.splitId ? (d || []).find(W => W && W.id !== a.id && W.splitId === a.splitId) : null,
       ue = W => ({
         id: D ? a.id : pe(),
         walletId: A,
         type: j,
-        amount: ge(H),
+        amount: zSpOk ? zSpA : ge(H),
         currency: N,
         categoryId: W,
         date: L || Ne(),
         comment: te.trim(),
         createdAt: D ? a.createdAt : Date.now()
       }),
+      /* Обе части получают одну дату, один комментарий и один createdAt:
+         именно ручная правка времени у второй части и раздражала. */
+      zEmit = W => {
+        let De = ue(W);
+        if (!zSpOk) {
+          x(De);
+          return
+        }
+        let Ee = D && a.splitId ? a.splitId : pe();
+        x({
+          ...De,
+          splitId: Ee
+        }, {
+          id: pe(),
+          walletId: zSpW,
+          type: j,
+          amount: zSpB,
+          currency: N,
+          categoryId: W,
+          date: L || Ne(),
+          comment: te.trim(),
+          createdAt: De.createdAt,
+          splitId: Ee
+        })
+      },
       ye = W => {
         if (ge(H) <= 0) {
           S(!0);
           return
         }
-        x(ue(W))
+        if (zSpErr) return;
+        zEmit(W)
       },
       B = W => {
         x({
@@ -6717,6 +6915,65 @@
       }), fe && n("div", {
         className: "fc-err-text",
         children: "Введите сумму"
+      }), zNum && n("button", {
+        className: "fc-add-link fc-take-num",
+        onClick: zTakeNum,
+        children: ["Взять сумму ", zNum, " из комментария"]
+      }), zSib && n("div", {
+        className: "fc-file-note",
+        children: ["Часть общей траты: вторая часть — ", V(zSib.amount), " ", zSib.currency, " в другом кошельке."]
+      }), zSpList.length > 0 && n(X, {
+        children: [!zSp && n("button", {
+          className: "fc-add-link",
+          onClick: () => {
+            zSetSp(!0), zSetSpW(zSpList[0].id), zTotal > 0 && zSetSpAmt(String(et(zTotal / 2)))
+          },
+          children: "✂️ Разделить между кошельками"
+        }), zSp && n("div", {
+          className: "fc-split",
+          children: [n("div", {
+            className: "fc-card-label",
+            children: "Вторая часть — в другой кошелёк"
+          }), n("div", {
+            className: "fc-cur-chips fc-wrap",
+            children: zSpList.map(W => n("button", {
+              className: "fc-chip fc-chip-sm" + (W.id === zSpW ? " fc-chip-on" : ""),
+              onClick: () => zSetSpW(W.id),
+              children: W.name
+            }, W.id))
+          }), n("div", {
+            className: "fc-split-row",
+            children: [n("input", {
+              className: "fc-input fc-split-amt",
+              inputMode: "decimal",
+              placeholder: "0",
+              value: zSpAmt,
+              onChange: W => zSetSpAmt(W.target.value)
+            }), n("button", {
+              className: "fc-chip fc-chip-sm",
+              onClick: () => zTotal > 0 && zSetSpAmt(String(et(zTotal / 2))),
+              children: "Пополам"
+            }), n("button", {
+              className: "fc-chip fc-chip-sm",
+              onClick: () => {
+                zSetSp(!1), zSetSpAmt("")
+              },
+              children: "Отменить"
+            })]
+          }), zSpErr ? n("div", {
+            className: "fc-err-text",
+            children: "Вторая часть должна быть меньше общей суммы"
+          }) : zSpOk ? n("div", {
+            className: "fc-split-sum",
+            children: [oe.name, " ", V(zSpA), " · ", (zSpList.find(W => W.id === zSpW) || {}).name, " ", V(zSpB), " ", N]
+          }) : n("div", {
+            className: "fc-muted",
+            style: {
+              fontSize: 13
+            },
+            children: "Сколько из общей суммы уходит во второй кошелёк"
+          })]
+        })]
       }), de && n(X, {
         children: [n("div", {
           className: "fc-card-label",
@@ -6795,7 +7052,8 @@
             q(!0);
             return
           }
-          x(ue($))
+          if (zSpErr) return;
+          zEmit($)
         },
         children: D ? "Сохранить изменения" : "Сохранить запись"
       }), D && T && j === "expense" && n("button", {
@@ -8172,6 +8430,23 @@
 .fc-msg-acts { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .fc-msg-send { background: none; border: none; padding: 0 2px; font-size: 12px;
   color: var(--accent); font-weight: 700; cursor: pointer; font-family: inherit; }
+
+/* ТЗ-36: список покупок */
+.fc-shop { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 12px; padding: 10px 12px; margin-bottom: 6px; }
+.fc-shop-body { flex: 1 1 auto; min-width: 0; background: none; border: none; padding: 0; text-align: left;
+  font: inherit; color: inherit; cursor: pointer; font-size: 15px; word-break: break-word; }
+.fc-shop-done { opacity: 0.5; }
+.fc-shop-done .fc-shop-body { text-decoration: line-through; }
+.fc-shop-del { background: none; border: none; color: var(--muted); font-size: 20px; line-height: 1;
+  padding: 0 4px; cursor: pointer; font-family: inherit; flex-shrink: 0; }
+
+/* ТЗ-35: делёж расхода между кошельками */
+.fc-split { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-top: 10px; }
+.fc-split-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.fc-split-amt { flex: 1 1 auto; min-width: 0; }
+.fc-split-sum { font-size: 13px; font-weight: 600; color: var(--accent); margin-top: 8px; font-variant-numeric: tabular-nums; }
+.fc-take-num { color: var(--accent); }
 
 /* ТЗ-32: карточка предложения советника */
 .fc-props { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; align-self: flex-start; width: 100%; }
