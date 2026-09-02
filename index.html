@@ -6193,6 +6193,10 @@
     let e = typeof window < "u" && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window,
       [t, a] = C(e && Notification.permission === "granted" ? "granted" : "idle"),
       [s, o] = C(""),
+      /* Состояние берём с сервера: разрешение в браузере и живая подписка —
+         разные вещи, и путать их значит показывать «всё включено», когда
+         пуши уходят на другое устройство. */
+      [zSt, zSetSt] = C(null),
       c = window.FINAPPA_API_BASE || "",
       d = window.FINAPPA_VAPID || "",
       l = window.FINAPPA_DEVICE_KEY || "",
@@ -6200,6 +6204,17 @@
         let p = "=".repeat((4 - h.length % 4) % 4),
           _ = atob((h + p).replace(/-/g, "+").replace(/_/g, "/"));
         return Uint8Array.from(_, v => v.charCodeAt(0))
+      },
+      zLoad = async () => {
+        try {
+          let h = await (await navigator.serviceWorker.ready).pushManager.getSubscription();
+          let p = await fetch(`${c}/api/push/state/${l}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ endpoint: h ? h.endpoint : "" })
+          }).then(_ => _.json());
+          zSetSt(p && p.ok ? p : null)
+        } catch { zSetSt(null) }
       },
       u = async () => {
         try {
@@ -6221,7 +6236,7 @@
               })
             });
           if (!v.ok) throw new Error("server " + v.status);
-          a("granted"), o("Уведомления включены ✓")
+          a("granted"), o("Уведомления включены на этом устройстве ✓"), zLoad()
         } catch (h) {
           o("Не получилось: " + (h && h.message ? h.message : "ошибка") + ". На iPhone приложение должно быть установлено на экран «Домой».")
         }
@@ -6231,16 +6246,21 @@
           let h = await fetch(`${c}/api/push/test/${l}`, {
             method: "POST"
           });
-          o(h.ok ? "Тест отправлен — жди уведомление." : "Сервер не смог отправить (" + h.status + ").")
+          let p = await h.json().catch(() => null);
+          o(h.ok ? "Отправлено на устройств: " + ((p && p.sent) || 0) + ". Если ничего не пришло — включи уведомления на том телефоне, где ждёшь." : h.status === 404 ? "Ни одно устройство не подписано — нажми «Включить уведомления»." : "Сервер не смог отправить (" + h.status + ").")
         } catch {
           o("Ошибка сети.")
         }
       };
+    we(() => { e && zLoad() }, []);
     return e ? n("div", {
       style: {
         padding: "4px 0"
       },
-      children: [n("div", {
+      children: [zSt && n("div", {
+        className: zSt.here ? "fc-push-on" : "fc-push-off",
+        children: zSt.here ? "Включены на этом устройстве ✓" + (zSt.devices > 1 ? ` · всего устройств: ${zSt.devices}` : "") : zSt.devices > 0 ? `На этом устройстве выключены · подписано устройств: ${zSt.devices}` : "Уведомления не включены ни на одном устройстве"
+      }), n("div", {
         style: {
           display: "flex",
           gap: 8,
@@ -6250,7 +6270,7 @@
           className: "fc-ghost",
           onClick: u,
           children: t === "granted" ? "Переподключить уведомления" : "Включить уведомления"
-        }), t === "granted" && n("button", {
+        }), !!(zSt && zSt.devices) && n("button", {
           className: "fc-ghost",
           onClick: g,
           children: "Прислать тестовое"
@@ -6268,7 +6288,7 @@
           marginTop: 6,
           fontSize: 13
         },
-        children: "За день до списания придёт push. Баннер на главной работает и без уведомлений."
+        children: "Включать нужно на КАЖДОМ устройстве, где ждёшь уведомления: телефон и компьютер подписываются отдельно. Баннеры внутри приложения работают и без уведомлений."
       })]
     }) : n("div", {
       className: "fc-muted",
@@ -8430,6 +8450,10 @@
 .fc-msg-acts { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .fc-msg-send { background: none; border: none; padding: 0 2px; font-size: 12px;
   color: var(--accent); font-weight: 700; cursor: pointer; font-family: inherit; }
+
+/* ТЗ-37: состояние уведомлений */
+.fc-push-on { font-size: 13px; font-weight: 700; color: var(--accent); margin-bottom: 8px; }
+.fc-push-off { font-size: 13px; font-weight: 600; color: var(--expense); margin-bottom: 8px; }
 
 /* ТЗ-36: список покупок */
 .fc-shop { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line);
