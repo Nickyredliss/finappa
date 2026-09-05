@@ -1,7 +1,7 @@
 /* Finappa service worker — офлайн-режим.
    Стратегия: кэшируем оболочку при установке; отдаём из кэша,
    в фоне обновляем из сети (stale-while-revalidate). */
-const CACHE = "finappa-v42";
+const CACHE = "finappa-v43";
 /* Оболочка у приложения одна, а адресов у неё много: «?draft=…» (инбокс),
    «?section=tasks» (уведомление), «?action=…» (ярлык). Ключ в кэше должен
    быть один — канонический. */
@@ -95,7 +95,7 @@ self.addEventListener("notificationclick", (e) => {
      черновик — «Деньги». Иначе напоминание превращается в «открой и найди»,
      а это ровно та потеря, из-за которой о деле и забывают. */
   const data = e.notification.data || {};
-  const url = data.section === "tasks" ? "./?section=tasks" : "./";
+  const url = data.section === "now" ? "./?section=tasks&now=1" : data.section === "tasks" ? "./?section=tasks" : "./";
   e.waitUntil(clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
     for (const c of list) {
       if (!("focus" in c)) continue;

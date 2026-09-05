@@ -895,7 +895,7 @@
       ids: e
     }),
     Yt = Ut;
-  var Fe = ["wallets", "categories", "txs", "subscriptions", "drafts", "goals", "tasks", "habits", "wishes", "shopping"],
+  var Fe = ["wallets", "categories", "txs", "subscriptions", "drafts", "goals", "tasks", "habits", "wishes", "shopping", "ideas"],
     _t = ["activeWalletId", "myName", "lastUsed", "inboxToken", "sumCurrency", "theme", "section", "habitsSeeded"];
   var ga = ["syncSig", "members"],
     he = e => Number(e) || 0,
@@ -1047,7 +1047,7 @@
   }
 
   function wa(e) {
-    return e ? !(e.txs || []).length && !(e.subscriptions || []).length && !(e.drafts || []).length && !(e.goals || []).length && !(e.tasks || []).length && !(e.habits || []).length && !(e.wishes || []).length && !(e.shopping || []).length && !(e.pTomb || []).length && (e.wallets || []).length <= 1 : !1
+    return e ? !(e.txs || []).length && !(e.subscriptions || []).length && !(e.drafts || []).length && !(e.goals || []).length && !(e.tasks || []).length && !(e.habits || []).length && !(e.wishes || []).length && !(e.shopping || []).length && !(e.ideas || []).length && !(e.pTomb || []).length && (e.wallets || []).length <= 1 : !1
   }
 
   function $e(e) {
@@ -2384,6 +2384,9 @@
           f = i.get("action"),
           m = (i.get("draft") || "").replace(/\s+/g, " ").trim().slice(0, 500),
           b = i.get("section") === "tasks" ? "tasks" : i.get("section") === "habits" ? "habits" : i.get("section") === "journal" ? "journal" : i.get("section") === "advisor" ? "advisor" : i.get("section") === "shop" ? "shop" : null;
+        /* Пуш «что сделать сейчас» открывает не просто раздел, а саму шторку:
+           иначе человек снова упирается в список и снова выбирает. */
+        i.get("now") === "1" && u({ kind: "now" });
         if (f !== "add-expense" && !m && !b) return;
         if (B.current = !0, b && (a(O => ({
             ...O,
@@ -2689,6 +2692,26 @@
         }
         return { ok: !1, err: "Неизвестный вид записи" }
       },
+      /* ТЗ-38: идеи. Мысль не «делается» и не имеет срока — у неё нет ни
+         doneAt, ни due. Единственные действия: записать, перечитать, убрать
+         или превратить в дело, если мысль всё-таки требует действия. */
+      svIdea = i => a(f => ({
+        ...f,
+        ideas: [...f.ideas || [], {
+          id: pe(),
+          text: String(i || "").trim().slice(0, 500),
+          createdAt: Date.now()
+        }]
+      })),
+      rmIdea = i => a(f => ({
+        ...f,
+        ideas: (f.ideas || []).filter(m => m.id !== i)
+      })),
+      /* Мысль, дозревшая до действия, не переписывается руками. */
+      zIdeaToTask = i => {
+        if (!i) return;
+        dn({ id: pe(), text: i.text, due: null, dueTime: null, soon: !1, doneAt: null }), rmIdea(i.id), E("Стало делом ✓")
+      },
       /* ТЗ-36: список покупок. Отдельная сущность, а не дело с галочкой:
          дело закрывается навсегда, покупка возвращается каждую неделю, и
          смешивать их — значит топить дела в молоке и хлебе. */
@@ -2887,6 +2910,11 @@
         className: "fc-screen",
         children: [v === "tasks" && n(Eo, {
           tasks: e.tasks || [],
+          ideas: e.ideas || [],
+          onNow: () => u({ kind: "now" }),
+          onAddIdea: svIdea,
+          onDelIdea: rmIdea,
+          onIdeaToTask: zIdeaToTask,
           onToggle: us,
           onSave: dn,
           onDelete: un,
@@ -3244,9 +3272,24 @@
           ls(i), u(null), E("Подписка удалена")
         },
         onClose: () => u(null)
+      }), r && r.kind === "now" && n(zNowSheet, {
+        tasks: e.tasks || [],
+        onToggle: i => {
+          us(i), E("Готово ✓")
+        },
+        onSlow: i => {
+          dn({ id: i, slow: !0 }), E("Учту: это долгое")
+        },
+        onClose: () => u(null)
       }), r && r.kind === "task" && n(Mo, {
         task: r.task ? (e.tasks || []).find(i => i.id === r.task.id) || r.task : null,
         prefill: r.prefill,
+        /* Из черновика — сразу в идеи, из открытого дела — переносом. */
+        onAsIdea: i => {
+          let f = String(i || "").trim();
+          if (!f) return;
+          svIdea(f), r.draftId ? (le(r.draftId), E("Записано в идеи 💡")) : (r.task && un(r.task.id), u(null), E("Перенесено в идеи 💡"))
+        },
         onAsExpense: r.draftId ? () => {
           let i = (e.drafts || []).find(m => m.id === r.draftId);
           if (!i) {
@@ -4171,6 +4214,62 @@
      Купленное не исчезает само: вычеркнутая строка остаётся видной до конца
      похода по магазину (передумал — коснулся ещё раз), а «Убрать купленное»
      чистит список одним касанием. */
+  /* Одно дело на экране, а не список: список — это снова выбор, а человек
+     пришёл сюда именно потому, что выбирать не хочет. */
+  function zNowSheet({
+    tasks: e,
+    onToggle: t,
+    onSlow: a,
+    onClose: s
+  }) {
+    let [o, c] = C(0),
+      d = ze(),
+      l = (e || []).filter(g => g && !g.doneAt && String(g.text || "").trim())
+        .map(g => ({ t: g, s: zSpeed(g) }))
+        .sort((g, h) => g.s - h.s || (Number(g.t.createdAt) || 0) - (Number(h.t.createdAt) || 0)),
+      r = l[Math.min(o, Math.max(0, l.length - 1))] || null,
+      u = r && r.t;
+    return n(be, {
+      onClose: s,
+      title: "Что сделать сейчас",
+      children: l.length === 0 ? n("div", {
+        className: "fc-muted",
+        children: "Открытых дел нет — редкий и хороший случай."
+      }) : n("div", {
+        className: "fc-now",
+        children: [n("div", {
+          className: "fc-now-speed",
+          children: [Z_SPEED_LABEL[r.s], u.due === d ? " · на сегодня" : u.due && u.due < d ? " · просрочено" : ""]
+        }), n("div", {
+          className: "fc-now-text",
+          children: u.text
+        }), n("button", {
+          className: "fc-primary",
+          onClick: () => {
+            t(u.id), c(0)
+          },
+          children: "Сделал ✓"
+        }), n("div", {
+          className: "fc-now-acts",
+          children: [n("button", {
+            className: "fc-idea-btn",
+            onClick: () => c(g => g + 1),
+            children: "Не сейчас →"
+          }), n("button", {
+            className: "fc-idea-btn fc-idea-del",
+            onClick: () => {
+              a(u.id), c(0)
+            },
+            children: "Это долгое"
+          })]
+        }), n("div", {
+          className: "fc-muted fc-task-hint",
+          children: ["Дело ", Math.min(o, l.length - 1) + 1, " из ", l.length, " — от быстрых к долгим."]
+        })]
+      })
+    })
+  }
+
   function zShopTab({
     items: e,
     onAdd: t,
@@ -4658,15 +4757,54 @@
     })
   }
 
+  /* ===== ТЗ-39: «что сейчас сделать» =====
+     Оценка длительности по формулировке. Дословно те же слова, что и на
+     сервере (см. taskSpeed в server.js) — при правке менять оба места,
+     примеры сверяются одинаковой таблицей в тестах.
+
+     Быстрое узнаётся по глаголу и по короткой фразе: «отмыть наклейки»,
+     «позвонить в банк», «оплатить визу». Долгое — по словам про поиск,
+     изучение и создание: «найти видео курс», «разобраться с налогами»,
+     «сделать сайт». Промах стоит одно касание, поэтому эвристика лучше
+     лишнего поля в форме. */
+  var Z_FAST = ["позвонить", "написать", "отправить", "оплатить", "заплатить", "перевести", "купить", "заказать", "забрать", "отнести", "отдать", "вынести", "полить", "помыть", "отмыть", "вымыть", "почистить", "постирать", "выкинуть", "выбросить", "убрать", "записаться", "спросить", "уточнить", "подтвердить", "продлить", "распечатать", "скинуть", "переслать", "зарядить", "проверить"];
+  var Z_SLOW = ["найти", "искать", "поискать", "выбрать", "изучить", "разобраться", "прочитать", "посмотреть", "смотреть", "придумать", "продумать", "спланировать", "сделать", "создать", "запустить", "настроить", "собрать", "написать статью", "разработать", "оформить", "перевезти", "переехать", "починить", "отремонтировать", "курс", "видео", "тест", "экзамен", "сайт"];
+  const zWordIn = (list, low) => list.some(w => Xe(w).test(low));
+  /* Возвращает: 1 — быстрое, 2 — среднее, 3 — долгое. Ручная пометка сильнее
+     любой эвристики: человек знает про своё дело больше, чем словарь. */
+  function zSpeed(t) {
+    if (!t) return 2;
+    if (t.slow) return 3;
+    if (t.fast) return 1;
+    let low = String(t.text || "").toLowerCase(),
+      words = low.split(/[^\p{L}\p{N}]+/u).filter(Boolean).length;
+    if (zWordIn(Z_SLOW, low)) return 3;
+    if (zWordIn(Z_FAST, low) && words <= 6) return 1;
+    if (words <= 3) return 1;
+    if (words >= 8) return 3;
+    return 2
+  }
+  var Z_SPEED_LABEL = { 1: "⚡ быстрое", 2: "🕐 не быстрое", 3: "🐢 долгое" };
+
   function Eo({
     tasks: e,
+    ideas: zI,
+    onAddIdea: zAdd,
+    onDelIdea: zDel,
+    onIdeaToTask: zToTask,
+    onNow: zNow,
     onToggle: t,
     onSave: a,
     onDelete: s,
     onOpen: o,
     onNew: c
   }) {
-    let [d, l] = C(""), [r, u] = C(!1), g = ze(), h = Ae(() => Xt(e, g), [e, g]),
+    let [d, l] = C(""), [r, u] = C(!1), [zTxt, zSetTxt] = C(""), [zOpen, zSetOpen] = C(!1), g = ze(), h = Ae(() => Xt(e, g), [e, g]),
+      zList = (zI || []).slice().sort((k, D) => (Number(D.createdAt) || 0) - (Number(k.createdAt) || 0)),
+      zAddIdea = () => {
+        let k = zTxt.trim();
+        k && (zAdd(k), zSetTxt(""), zSetOpen(!0))
+      },
       /* ☀️: дело уезжает в «Сегодня», а откуда пришло — запоминается в planPrev.
          ↩: возвращает ровно туда (включая исходную дату у дел из «Дальше»)
          и стирает метку. Утренний план — черновик, а не приговор. */
@@ -4745,6 +4883,10 @@
       }), n("div", {
         className: "fc-muted fc-task-hint",
         children: "Можно прямо во фразе: «позвонить в банк в четверг», «оплатить визу 12 сентября», «купить масло на днях»"
+      }), (h.overdue.length + h.today.length + h.soon.length + h.later.length + h.someday.length) > 0 && n("button", {
+        className: "fc-now-btn",
+        onClick: zNow,
+        children: "⚡ Что сделать сейчас"
       }), v && n("button", {
         className: "fc-card fc-task-empty",
         onClick: c,
@@ -4789,6 +4931,50 @@
           onToggle: t,
           onOpen: o
         }, x.id))]
+      }), n("div", {
+        className: "fc-ideas",
+        children: [n("button", {
+          className: "fc-done-toggle",
+          onClick: () => zSetOpen(x => !x),
+          children: ["💡 Идеи", zList.length > 0 && ` · ${zList.length}`, " ", zOpen ? "▲" : "▼"]
+        }), zOpen && n(X, {
+          children: [n("div", {
+            className: "fc-task-add",
+            children: [n("input", {
+              className: "fc-input",
+              placeholder: "Мысль по поводу чего-нибудь…",
+              value: zTxt,
+              onChange: x => zSetTxt(x.target.value),
+              onKeyDown: x => {
+                x.key === "Enter" && zAddIdea()
+              }
+            }), n("button", {
+              className: "fc-primary fc-task-add-btn",
+              onClick: zAddIdea,
+              children: "+"
+            })]
+          }), zList.length === 0 && n("div", {
+            className: "fc-muted fc-task-hint",
+            children: "Сюда — мысли, а не дела: их не надо делать, их надо не потерять."
+          }), zList.map(x => n("div", {
+            className: "fc-idea",
+            children: [n("div", {
+              className: "fc-idea-text",
+              children: x.text
+            }), n("div", {
+              className: "fc-idea-acts",
+              children: [n("button", {
+                className: "fc-idea-btn",
+                onClick: () => zToTask(x),
+                children: "→ в дела"
+              }), n("button", {
+                className: "fc-idea-btn fc-idea-del",
+                onClick: () => zDel(x.id),
+                children: "Убрать"
+              })]
+            })]
+          }, x.id))]
+        })]
       })]
     })
   }
@@ -4797,6 +4983,7 @@
     task: e,
     prefill: t,
     onAsExpense: a,
+    onAsIdea: zIdea,
     onSave: s,
     onDelete: o,
     onClose: c
@@ -4828,6 +5015,10 @@
         }), n("button", {
           className: "fc-seg-btn fc-seg-on-period",
           children: "Дело"
+        }), zIdea && n("button", {
+          className: "fc-seg-btn",
+          onClick: () => zIdea(r),
+          children: "Идея"
         })]
       }), n("div", {
         className: "fc-card-label",
@@ -4908,6 +5099,10 @@
           })
         },
         children: d ? "Добавить дело" : "Сохранить"
+      }), !d && zIdea && n("button", {
+        className: "fc-ghost fc-make-sub",
+        onClick: () => zIdea(r),
+        children: "💡 Это не дело, а идея"
       }), !d && (I ? n("div", {
         className: "fc-confirm",
         children: [n("span", {
@@ -8450,6 +8645,23 @@
 .fc-msg-acts { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .fc-msg-send { background: none; border: none; padding: 0 2px; font-size: 12px;
   color: var(--accent); font-weight: 700; cursor: pointer; font-family: inherit; }
+
+/* ТЗ-39: что сделать сейчас */
+.fc-now-btn { width: 100%; margin-top: 10px; padding: 12px; border: 1px solid var(--accent); border-radius: 14px;
+  background: none; color: var(--accent); font-size: 15px; font-weight: 700; cursor: pointer; font-family: inherit; }
+.fc-now { display: flex; flex-direction: column; gap: 10px; }
+.fc-now-speed { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.fc-now-text { font-size: 22px; font-weight: 700; line-height: 1.3; word-break: break-word; }
+.fc-now-acts { display: flex; justify-content: space-between; gap: 12px; margin-top: 2px; }
+
+/* ТЗ-38: идеи */
+.fc-ideas { margin-top: 22px; }
+.fc-idea { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 6px; }
+.fc-idea-text { font-size: 15px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
+.fc-idea-acts { display: flex; gap: 14px; margin-top: 6px; }
+.fc-idea-btn { background: none; border: none; padding: 0; font-size: 12px; font-weight: 700;
+  color: var(--accent); cursor: pointer; font-family: inherit; }
+.fc-idea-del { color: var(--muted); }
 
 /* ТЗ-37: состояние уведомлений */
 .fc-push-on { font-size: 13px; font-weight: 700; color: var(--accent); margin-bottom: 8px; }
